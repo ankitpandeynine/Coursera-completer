@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "Coursera Ultimate AutoPilot",
+  "version": "5.0",
+  "description": "Auto-plays videos, spoofs speed to 3x, skips popups, auto-completes readings, and auto-navigates.",
+  "homepage_url": "https://github.com/ankitpandeynine/Coursera-completer",
+  "permissions": ["storage"],
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*.coursera.org/*"],
+      "js": ["main_world.js"],
+      "world": "MAIN",
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["*://*.coursera.org/*"],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    }
+  ]
+}
