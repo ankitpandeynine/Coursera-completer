@@ -1,12 +1,14 @@
 // ============================================================================
-// Coursera AI AutoPilot - Master Content Script (v9.5)
+// Coursera AI AutoPilot - Master Content Script (v9.6)
 // ============================================================================
 // Features:
 // 1. Guaranteed event-driven video speed enforcement (0.25x - 16x)
 // 2. Comprehensive action & error logging stored in chrome.storage
-// 3. Robust practice question & quiz solver via Google Gemini
+// 3. Multi-provider AI practice question & quiz solver (Groq, Gemini, OpenRouter, NVIDIA)
 // 4. Strict Quiz Safeguard: NEVER skips or advances until ALL answers are marked & submitted
-// 5. Auto-play, mid-video popup skip, and post-completion navigation
+// 5. Sidebar Green Checkmark Verification & Replay-Once Safeguard (prevents in-between gaps)
+// 6. Course Focus Modes: Quizzes Only, Videos Only, Pending/Incomplete Only, or All
+// 7. Auto-play, mid-video popup skip, and post-completion navigation
 // ============================================================================
 
 (function() {
@@ -20,12 +22,17 @@
         bgPlay: true,
         autoNavigate: true,
         autoSolve: true,
+        focusMode: 'all', // 'all' | 'quizzes_only' | 'videos_only' | 'pending_only'
+        strictCompletion: true,
         geminiApiKey: '',
         groqApiKey: '',
         openRouterApiKey: '',
         nvidiaApiKey: '',
         preferredProvider: 'auto'
     };
+
+    let videoReplayMap = {}; // Tracks replayed videos by path to strictly replay only ONCE
+    let videoEndedFirstSeenTime = 0; // Timestamp when video first ended on current page
 
     function hasAnyApiKey() {
         return !!(state.geminiApiKey || state.groqApiKey || state.openRouterApiKey || state.nvidiaApiKey);
@@ -86,6 +93,7 @@
        ======================================================================== */
     chrome.storage.local.get([
         'playbackSpeed', 'forceMode', 'bgPlay', 'autoNavigate', 'autoSolve',
+        'focusMode', 'strictCompletion',
         'geminiApiKey', 'groqApiKey', 'openRouterApiKey', 'nvidiaApiKey', 'preferredProvider'
     ], (data) => {
         if (data.playbackSpeed !== undefined) state.playbackSpeed = parseFloat(data.playbackSpeed) || 3.0;
@@ -93,6 +101,8 @@
         if (data.bgPlay !== undefined) state.bgPlay = data.bgPlay;
         if (data.autoNavigate !== undefined) state.autoNavigate = data.autoNavigate;
         if (data.autoSolve !== undefined) state.autoSolve = data.autoSolve;
+        if (data.focusMode) state.focusMode = data.focusMode;
+        if (data.strictCompletion !== undefined) state.strictCompletion = data.strictCompletion;
         if (data.geminiApiKey) state.geminiApiKey = data.geminiApiKey.trim();
         if (data.groqApiKey) state.groqApiKey = data.groqApiKey.trim();
         if (data.openRouterApiKey) state.openRouterApiKey = data.openRouterApiKey.trim();
@@ -100,7 +110,7 @@
         if (data.preferredProvider) state.preferredProvider = data.preferredProvider;
 
         syncSpeedToMainWorld();
-        addLog(`Extension initialized. Speed: ${state.playbackSpeed}x (${state.forceMode}), AutoNavigate: ${state.autoNavigate}`);
+        addLog(`Extension initialized. Speed: ${state.playbackSpeed}x (${state.forceMode}), Focus: ${state.focusMode}, StrictGuard: ${state.strictCompletion}`);
     });
 
     chrome.storage.onChanged.addListener((changes) => {
@@ -119,6 +129,14 @@
         if (changes.bgPlay !== undefined) state.bgPlay = changes.bgPlay.newValue;
         if (changes.autoNavigate !== undefined) state.autoNavigate = changes.autoNavigate.newValue;
         if (changes.autoSolve !== undefined) state.autoSolve = changes.autoSolve.newValue;
+        if (changes.focusMode !== undefined) {
+            state.focusMode = changes.focusMode.newValue || 'all';
+            addLog(`Course Focus Mode set to: ${state.focusMode}`, 'info');
+        }
+        if (changes.strictCompletion !== undefined) {
+            state.strictCompletion = changes.strictCompletion.newValue !== undefined ? changes.strictCompletion.newValue : true;
+            addLog(`Strict Completion Guard set to: ${state.strictCompletion}`, 'info');
+        }
         if (changes.geminiApiKey !== undefined) {
             state.geminiApiKey = (changes.geminiApiKey.newValue || '').trim();
             apiCooldownUntil = 0;
@@ -863,6 +881,243 @@
                    text === 'next';
         });
         if (tier3) return tier3;
+
+        return null;
+    }
+
+    /* ========================================================================
+       SIDEBAR & COURSE OUTLINE INSPECTION (GREEN CHECKMARK & FOCUS MODES)
+       ======================================================================== */
+    function getSidebarNavigationItems() {
+        const selectors = [
+            'nav[aria-label*="Course" i] a',
+            'nav[aria-label*="module" i] a',
+            'nav[aria-label*="week" i] a',
+            '[role="navigation"] a[href*="/learn/"]',
+            '[data-testid*="navigation"] a[href*="/learn/"]',
+            '[data-testid*="item-row"] a',
+            '[data-testid*="accordion-panel"] a',
+            '.rc-NavigationDrawer a[href*="/learn/"]',
+            '.rc-CourseItemNavigation a[href*="/learn/"]',
+            'div[class*="NavigationDrawer"] a[href*="/learn/"]',
+            'div[class*="ItemNavigation"] a[href*="/learn/"]',
+            'aside a[href*="/learn/"]',
+            'ul a[href*="/learn/"]'
+        ];
+
+        let links = [];
+        for (const sel of selectors) {
+            const found = Array.from(document.querySelectorAll(sel));
+            if (found.length > 0) {
+                const valid = found.filter(a => {
+                    const href = (a.getAttribute('href') || '').toLowerCase();
+                    return href.includes('/lecture/') || 
+                           href.includes('/supplement/') || 
+                           href.includes('/assignment-submission/') || 
+                           href.includes('/exam/') || 
+                           href.includes('/quiz/') || 
+                           href.includes('/discussionprompt/') ||
+                           href.includes('/graded-assignment/') ||
+                           href.includes('/ungradedLti/') ||
+                           href.includes('/reading/');
+                });
+                if (valid.length > links.length) {
+                    links = valid;
+                }
+            }
+        }
+        return links;
+    }
+
+    function getSidebarItemStatus(element) {
+        if (!element) return 'unknown';
+
+        // 1. Check aria-labels on the element and its direct wrapper
+        const elAria = (element.getAttribute('aria-label') || '').toLowerCase();
+        if (elAria.includes('not completed') || elAria.includes('incomplete') || elAria.includes('not started')) {
+            return 'pending';
+        }
+        if (elAria.includes('completed') || elAria.includes('passed')) {
+            return 'completed';
+        }
+
+        // 2. Check SVGs inside element (Coursera renders green checkmark or white circle)
+        const svgs = Array.from(element.querySelectorAll('svg'));
+        for (const svg of svgs) {
+            const svgAria = (svg.getAttribute('aria-label') || '').toLowerCase();
+            const svgTitle = (svg.querySelector('title')?.textContent || '').toLowerCase();
+            const combinedSvg = `${svgAria} ${svgTitle}`;
+
+            if (combinedSvg.includes('not completed') || combinedSvg.includes('incomplete') || combinedSvg.includes('not started')) {
+                return 'pending';
+            }
+            if (combinedSvg.includes('completed') || combinedSvg.includes('passed')) {
+                return 'completed';
+            }
+
+            // Green color check (#00823b, #1f883d, rgb(0, 130, 59))
+            const fill = (svg.getAttribute('fill') || svg.style.fill || '').toLowerCase();
+            const stroke = (svg.getAttribute('stroke') || svg.style.stroke || '').toLowerCase();
+            const isGreenAttr = fill.includes('00823b') || fill.includes('1f883d') || fill === 'green' ||
+                                stroke.includes('00823b') || stroke.includes('1f883d') || stroke === 'green';
+            if (isGreenAttr) return 'completed';
+
+            try {
+                const comp = window.getComputedStyle(svg);
+                const compFill = comp.fill || '';
+                const compColor = comp.color || '';
+                if (compFill.includes('0, 130, 59') || compFill.includes('00823b') || compColor.includes('0, 130, 59') || compColor.includes('00823b')) {
+                    return 'completed';
+                }
+            } catch (e) {}
+
+            // Incomplete white circle indicator (circle shape without checkmark or green fill)
+            const circle = svg.querySelector('circle');
+            const path = svg.querySelector('path');
+            if (circle && !path && !isGreenAttr) {
+                return 'pending';
+            }
+        }
+
+        // 3. Classes and testids indicating completion
+        const hasCompletedClass = !!element.querySelector('[class*="completed" i], [class*="Completed" i], [data-testid*="completed" i], [data-testid*="Completed" i]');
+        if (hasCompletedClass) {
+            const text = (element.innerText || element.textContent || '').toLowerCase();
+            if (!text.includes('not completed') && !text.includes('incomplete')) {
+                return 'completed';
+            }
+        }
+
+        // 4. Text content checks (e.g. "Grade: 100%", "Completed", "Passed")
+        const text = (element.innerText || element.textContent || '').toLowerCase();
+        if (text.includes('grade:') || text.includes('completed') || text.includes('passed')) {
+            if (!text.includes('not completed') && !text.includes('incomplete')) {
+                return 'completed';
+            }
+        }
+
+        return 'pending';
+    }
+
+    function getCurrentSidebarItem() {
+        const currentPath = window.location.pathname.toLowerCase();
+        const items = getSidebarNavigationItems();
+        if (!items || items.length === 0) return null;
+
+        // Exact or partial match on pathname
+        let current = items.find(item => {
+            const href = (item.getAttribute('href') || '').toLowerCase();
+            return href && (href.includes(currentPath) || currentPath.includes(href));
+        });
+
+        // Or aria-current="page" / active class
+        if (!current) {
+            current = items.find(item => {
+                return item.getAttribute('aria-current') === 'page' ||
+                       item.getAttribute('aria-selected') === 'true' ||
+                       item.classList.contains('active') ||
+                       item.closest('[aria-current="page"], [aria-selected="true"], .active');
+            });
+        }
+        return current;
+    }
+
+    function isCurrentItemCompletedInSidebar() {
+        const current = getCurrentSidebarItem();
+        if (!current) return null;
+        const status = getSidebarItemStatus(current);
+        return status === 'completed';
+    }
+
+    function getItemTypeFromUrl(url = window.location.href) {
+        const u = url.toLowerCase();
+        if (u.includes('/assignment-submission/') || u.includes('/exam/') || u.includes('/quiz/') || u.includes('/graded-assignment/')) {
+            return 'quiz';
+        }
+        if (u.includes('/lecture/')) {
+            return 'video';
+        }
+        if (u.includes('/supplement/') || u.includes('/reading/')) {
+            return 'reading';
+        }
+        if (u.includes('/coach/') || u.includes('/dialogue') || u.includes('/guided-discussion')) {
+            return 'dialogue';
+        }
+        if (u.includes('/discussionprompt/')) {
+            return 'discussion';
+        }
+        return 'other';
+    }
+
+    function findNextPendingSidebarItem() {
+        const items = getSidebarNavigationItems();
+        if (!items || items.length === 0) return null;
+
+        const current = getCurrentSidebarItem();
+        let currentIndex = -1;
+        if (current) {
+            currentIndex = items.indexOf(current);
+        }
+
+        // Search starting after the current item first
+        if (currentIndex !== -1) {
+            for (let i = currentIndex + 1; i < items.length; i++) {
+                const status = getSidebarItemStatus(items[i]);
+                if (status === 'pending') {
+                    return items[i];
+                }
+            }
+        }
+
+        // Wrap around if needed
+        for (let i = 0; i < items.length; i++) {
+            if (i === currentIndex) continue;
+            const status = getSidebarItemStatus(items[i]);
+            if (status === 'pending') {
+                return items[i];
+            }
+        }
+
+        return null;
+    }
+
+    function findNextTargetSidebarItem(mode) {
+        const items = getSidebarNavigationItems();
+        if (!items || items.length === 0) return null;
+
+        const current = getCurrentSidebarItem();
+        let currentIndex = -1;
+        if (current) {
+            currentIndex = items.indexOf(current);
+        }
+
+        const matchesMode = (item) => {
+            const href = item.getAttribute('href') || '';
+            const type = getItemTypeFromUrl(href);
+            const status = getSidebarItemStatus(item);
+
+            if (mode === 'quizzes_only') {
+                return type === 'quiz';
+            }
+            if (mode === 'videos_only') {
+                return type === 'video' || type === 'reading';
+            }
+            if (mode === 'pending_only') {
+                return status === 'pending';
+            }
+            return true;
+        };
+
+        if (currentIndex !== -1) {
+            for (let i = currentIndex + 1; i < items.length; i++) {
+                if (matchesMode(items[i])) return items[i];
+            }
+        }
+
+        for (let i = 0; i < items.length; i++) {
+            if (i === currentIndex) continue;
+            if (matchesMode(items[i])) return items[i];
+        }
 
         return null;
     }
@@ -2026,6 +2281,7 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
             if (window.location.href !== lastKnownUrl) {
                 lastKnownUrl = window.location.href;
                 pageArrivalTime = Date.now();
+                videoEndedFirstSeenTime = 0;
                 hasMarkedCurrentReading = false;
                 lastStartClickTime = 0;
                 lastStartClickUrl = '';
@@ -2053,7 +2309,7 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
                 quizSession.status = 'IDLE';
             }
 
-            let shouldGoNext = false;
+            const currentItemType = getItemTypeFromUrl(window.location.href);
             const video = document.querySelector('video');
             const isQuizUrl = isQuizOrAssignmentUrl();
             const quizInputs = getQuizInputs();
@@ -2061,7 +2317,79 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
             const onAttempt = hasQuestionsOnScreen || isQuizAttemptPage();
             const onFeedback = isQuizFeedbackPage();
 
-            // 3. VIDEO ITEM HANDLING
+            // 3. COURSE FOCUS MODES (ITEM FILTERING & FAST SKIPPING)
+            // A. Quizzes-only mode: Skip videos and readings immediately
+            if (state.focusMode === 'quizzes_only' && (currentItemType === 'video' || currentItemType === 'reading' || video)) {
+                if (Date.now() - pageArrivalTime > 1200 && (Date.now() - lastNavTime > 2500)) {
+                    lastNavTime = Date.now();
+                    const target = findNextTargetSidebarItem('quizzes_only');
+                    if (target) {
+                        addLog("Quizzes-Only Mode: Skipping video/reading to advance to quiz in sidebar...", "info");
+                        showStatus("Quizzes-Only Mode: Jumping to next quiz...");
+                        triggerClick(target);
+                    } else {
+                        const nextBtn = findNextItemButton();
+                        if (nextBtn) {
+                            addLog("Quizzes-Only Mode: Advancing past video/reading...", "info");
+                            showStatus("Quizzes-Only Mode: Advancing to next item...");
+                            triggerClick(nextBtn);
+                        }
+                    }
+                    pageArrivalTime = Date.now();
+                }
+                return;
+            }
+
+            // B. Videos-only mode: Skip quizzes and assignments immediately
+            if (state.focusMode === 'videos_only' && (currentItemType === 'quiz' || isQuizUrl || onAttempt || onFeedback)) {
+                if (Date.now() - pageArrivalTime > 1200 && (Date.now() - lastNavTime > 2500)) {
+                    lastNavTime = Date.now();
+                    const target = findNextTargetSidebarItem('videos_only');
+                    if (target) {
+                        addLog("Videos-Only Mode: Skipping quiz/assignment to advance to video in sidebar...", "info");
+                        showStatus("Videos-Only Mode: Jumping to next video...");
+                        triggerClick(target);
+                    } else {
+                        const nextBtn = findNextItemButton();
+                        if (nextBtn) {
+                            addLog("Videos-Only Mode: Advancing past quiz/assignment...", "info");
+                            showStatus("Videos-Only Mode: Advancing to next item...");
+                            triggerClick(nextBtn);
+                        }
+                    }
+                    pageArrivalTime = Date.now();
+                }
+                return;
+            }
+
+            // C. Pending-only mode: If current item is already marked green, skip it immediately!
+            if (state.focusMode === 'pending_only') {
+                const sidebarCompleted = isCurrentItemCompletedInSidebar();
+                if (sidebarCompleted === true) {
+                    if (Date.now() - pageArrivalTime > 1200 && (Date.now() - lastNavTime > 2500)) {
+                        lastNavTime = Date.now();
+                        const nextPending = findNextPendingSidebarItem();
+                        if (nextPending) {
+                            addLog("Pending-Only Mode: Current item is already marked green! Jumping to next incomplete item...", "info");
+                            showStatus("Item already completed! Jumping to next incomplete item...");
+                            triggerClick(nextPending);
+                        } else {
+                            const nextBtn = findNextItemButton();
+                            if (nextBtn) {
+                                addLog("Pending-Only Mode: Current item completed. Clicking Next item...", "info");
+                                showStatus("Item completed! Advancing to next item...");
+                                triggerClick(nextBtn);
+                            }
+                        }
+                        pageArrivalTime = Date.now();
+                    }
+                    return;
+                }
+            }
+
+            let shouldGoNext = false;
+
+            // 4. VIDEO ITEM HANDLING
             if (video) {
                 injectSpeedBadge(video);
 
@@ -2104,12 +2432,48 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
                     dismissBtn.click();
                 }
 
-                // D. Video Completion Check
+                // D. Video Completion Check with Strict Completion Guard (Verify Green Checkmark & Replay-Once)
                 const videoEnded = video.ended || (video.duration > 0 && video.currentTime >= video.duration - 1.5);
                 const countdownVisible = !!document.querySelector('.rc-PostVideoCountdown, [data-testid="video-next-button"]');
 
                 if (videoEnded || countdownVisible) {
-                    shouldGoNext = true;
+                    if (state.strictCompletion) {
+                        if (!videoEndedFirstSeenTime) {
+                            videoEndedFirstSeenTime = Date.now();
+                        }
+                        const isCompleted = isCurrentItemCompletedInSidebar();
+                        if (isCompleted === true) {
+                            // Green checkmark confirmed in sidebar!
+                            shouldGoNext = true;
+                        } else if (isCompleted === false) {
+                            // Sidebar explicitly shows not completed / white circle
+                            const waitElapsed = Date.now() - videoEndedFirstSeenTime;
+                            if (waitElapsed < 3500) {
+                                showStatus(`Video ended. Waiting for Coursera completion sync (${Math.ceil((3500 - waitElapsed) / 1000)}s)...`);
+                                return; // Do not advance yet! Hold navigation until sync or replay
+                            }
+                            // 3.5s elapsed and still white circle in sidebar! Check if already replayed:
+                            const curPath = window.location.pathname.toLowerCase();
+                            const replayCount = videoReplayMap[curPath] || 0;
+                            if (replayCount === 0) {
+                                videoReplayMap[curPath] = 1;
+                                videoEndedFirstSeenTime = 0;
+                                video.currentTime = 0;
+                                video.play().catch(() => {});
+                                addLog("Strict Completion Guard: Video completed but not marked green in sidebar! Replaying video once to guarantee completion...", "warn");
+                                showStatus("Item not marked green! Replaying video once...");
+                                return;
+                            } else {
+                                addLog("Strict Completion Guard: Replayed once. Advancing to avoid infinite hang.", "info");
+                                shouldGoNext = true;
+                            }
+                        } else {
+                            // Sidebar item / status not detectable (e.g. drawer collapsed); advance safely
+                            shouldGoNext = true;
+                        }
+                    } else {
+                        shouldGoNext = true;
+                    }
                 }
             } 
             // 4. QUIZ / ASSIGNMENT / EXAM HANDLING (STRICT ISOLATION: NEVER FALL INTO READING AUTO-NEXT!)
@@ -2293,7 +2657,14 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
                         return; // PAUSE and wait for button to become blue!
                     }
                 } else {
-                    // Button was clicked; wait 1.5s for Coursera to persist completion before advancing
+                    // Button was clicked; wait for Coursera to persist completion before advancing
+                    if (state.strictCompletion) {
+                        const isCompleted = isCurrentItemCompletedInSidebar();
+                        if (isCompleted === false && (Date.now() - pageArrivalTime < 4000)) {
+                            showStatus("Reading marked, waiting for sidebar green checkmark sync...");
+                            return;
+                        }
+                    }
                     if (Date.now() - pageArrivalTime > 1500) {
                         shouldGoNext = true;
                     }
@@ -2308,6 +2679,13 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
                 if (window.scrollY === 0 && document.body.scrollHeight > window.innerHeight) {
                     window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
                 }
+                if (state.strictCompletion) {
+                    const isCompleted = isCurrentItemCompletedInSidebar();
+                    if (isCompleted === false && (Date.now() - pageArrivalTime < 4000)) {
+                        showStatus("Waiting for reading completion sync...");
+                        return;
+                    }
+                }
                 if (Date.now() - pageArrivalTime > 2500) {
                     shouldGoNext = true;
                 }
@@ -2316,9 +2694,36 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
 
         // 7. ADVANCE TO NEXT COURSE ITEM
         if (shouldGoNext && state.autoNavigate && (Date.now() - lastNavTime > 3000)) {
+            lastNavTime = Date.now();
+
+            if (state.focusMode === 'pending_only') {
+                const nextPending = findNextPendingSidebarItem();
+                if (nextPending) {
+                    addLog("Pending-Only Mode: Navigating to next incomplete item...", "info");
+                    showStatus("Moving to next pending item...");
+                    triggerClick(nextPending);
+                    return;
+                }
+            } else if (state.focusMode === 'quizzes_only') {
+                const nextQuiz = findNextTargetSidebarItem('quizzes_only');
+                if (nextQuiz) {
+                    addLog("Quizzes-Only Mode: Navigating to next quiz item...", "info");
+                    showStatus("Moving to next quiz...");
+                    triggerClick(nextQuiz);
+                    return;
+                }
+            } else if (state.focusMode === 'videos_only') {
+                const nextVideo = findNextTargetSidebarItem('videos_only');
+                if (nextVideo) {
+                    addLog("Videos-Only Mode: Navigating to next video item...", "info");
+                    showStatus("Moving to next video...");
+                    triggerClick(nextVideo);
+                    return;
+                }
+            }
+
             const nextBtn = findNextItemButton();
             if (nextBtn) {
-                lastNavTime = Date.now();
                 addLog("Advancing to next course item...", "info");
                 showStatus("Moving to next course item...");
                 triggerClick(nextBtn);

@@ -1,10 +1,12 @@
-// Coursera AI AutoPilot - Popup Controller v9.5
+// Coursera AI AutoPilot - Popup Controller v9.6
 // Multi-provider AI dispatcher, real-time cooldown tracking, solution viewer, and logs.
 
 document.addEventListener('DOMContentLoaded', () => {
     // Speed & Automation Controls
     const speedInput = document.getElementById('speedInput');
     const forceMethodSelect = document.getElementById('forceMethodSelect');
+    const focusModeSelect = document.getElementById('focusModeSelect');
+    const strictCompletionCB = document.getElementById('strictCompletionCB');
     const autoSolveCB = document.getElementById('autoSolveCB');
     const bgPlayCB = document.getElementById('bgPlayCB');
     const autoNavigateCB = document.getElementById('autoNavigateCB');
@@ -245,7 +247,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function refreshStorage() {
         chrome.storage.local.get([
-            'playbackSpeed', 'forceMode', 'preferredProvider',
+            'playbackSpeed', 'forceMode', 'preferredProvider', 'focusMode', 'strictCompletion',
             'geminiApiKey', 'groqApiKey', 'openRouterApiKey', 'nvidiaApiKey',
             'autoSolve', 'bgPlay', 'autoNavigate',
             'activityLogs', 'lastGeminiQuizData', 'providerCooldowns'
@@ -260,6 +262,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (forceMethodSelect) forceMethodSelect.value = data.forceMode || 'hybrid';
             if (providerSelect) providerSelect.value = data.preferredProvider || 'auto';
+            if (focusModeSelect) focusModeSelect.value = data.focusMode || 'all';
+            if (strictCompletionCB) strictCompletionCB.checked = data.strictCompletion !== undefined ? data.strictCompletion : true;
 
             if (geminiApiKeyInput) geminiApiKeyInput.value = data.geminiApiKey || '';
             if (groqApiKeyInput) groqApiKeyInput.value = data.groqApiKey || '';
@@ -302,6 +306,12 @@ document.addEventListener('DOMContentLoaded', () => {
         if (changes.forceMode && forceMethodSelect) {
             forceMethodSelect.value = changes.forceMode.newValue || 'hybrid';
         }
+        if (changes.focusMode && focusModeSelect) {
+            focusModeSelect.value = changes.focusMode.newValue || 'all';
+        }
+        if (changes.strictCompletion && strictCompletionCB) {
+            strictCompletionCB.checked = changes.strictCompletion.newValue !== undefined ? changes.strictCompletion.newValue : true;
+        }
         if (changes.activityLogs) renderLogs(changes.activityLogs.newValue);
         if (changes.lastGeminiQuizData) renderQuizSolution(changes.lastGeminiQuizData.newValue);
         if (changes.providerCooldowns || changes.groqApiKey || changes.geminiApiKey || changes.openRouterApiKey || changes.nvidiaApiKey) {
@@ -341,6 +351,20 @@ document.addEventListener('DOMContentLoaded', () => {
     if (forceMethodSelect) {
         forceMethodSelect.addEventListener('change', () => {
             chrome.storage.local.set({ forceMode: forceMethodSelect.value });
+        });
+    }
+
+    // Focus Mode listener
+    if (focusModeSelect) {
+        focusModeSelect.addEventListener('change', () => {
+            chrome.storage.local.set({ focusMode: focusModeSelect.value });
+        });
+    }
+
+    // Strict Completion listener
+    if (strictCompletionCB) {
+        strictCompletionCB.addEventListener('change', () => {
+            chrome.storage.local.set({ strictCompletion: strictCompletionCB.checked });
         });
     }
 

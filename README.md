@@ -1,4 +1,4 @@
-# ⚡ Coursera AI AutoPilot (v9.5)
+# ⚡ Coursera AI AutoPilot (v9.6)
 
 <p align="center">
   <img src="icons/icon128.png" alt="Coursera AI AutoPilot Logo" width="110" height="110" style="border-radius: 24px; box-shadow: 0 8px 24px rgba(0, 86, 210, 0.4);">
@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-9.5-0056D2?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/badge/Version-9.6-0056D2?style=flat-square" alt="Version">
   <img src="https://img.shields.io/badge/Manifest-V3-success?style=flat-square" alt="Manifest V3">
   <img src="https://img.shields.io/badge/AI%20Providers-Gemini%20%7C%20Groq%20%7C%20OpenRouter%20%7C%20NVIDIA-8A2BE2?style=flat-square" alt="AI Providers">
   <img src="https://img.shields.io/badge/License-MIT-blue?style=flat-square" alt="License">
@@ -21,6 +21,12 @@
 ## ✨ Features
 
 * **🧠 Multi-Provider AI Quiz Auto-Solver:** Automatically parses practice quiz questions, code snippets, multiple-choice options, and formulas. Dynamically queries AI models, marks correct choices, agrees to honor codes, and submits assignments.
+* **🎯 Course Focus Modes:**
+  * **🎯 Complete All Items:** Sequentially completes all videos, readings, discussions, and quizzes.
+  * **🧠 Practice Quizzes Only:** Skips videos and readings, jumping directly to practice questions and quizzes.
+  * **🎬 Videos & Readings Only:** Focuses exclusively on lectures and readings, skipping quizzes and assignments.
+  * **⚡ Incomplete Items Only:** Skips every item already marked green in the sidebar, jumping straight to pending items.
+* **🛡️ Strict Completion Guard (Sidebar Green Checkmark & Replay-Once):** Inspects the sidebar outline to verify items are marked green before advancing. If an item is completed but not yet marked green by Coursera's servers, the extension waits for sync and automatically replays the video once to prevent gaps.
 * **💬 Coursera AI Coach & Dialogue Automation:** Automatically participates in Coursera's interactive AI Dialogue scenarios, generating thoughtful humanized student responses and advancing past completion screens.
 * **⏩ Safe Speed Spoofing (Up to 16x):** Multi-tier speed engine (`Hybrid`, `Native`, `Virtual`) with pitch correction. Spoofs reported playback velocity to Coursera's backend at 1.0x so completion is saved legitimately. (Prefer 2x at night and sleep as many courses can't accept 16x bypass)
 * **👻 True Background Play:** Overrides visibility APIs (`document.hidden`, `visibilityState`) so lectures keep playing even when you switch tabs or minimize the window.

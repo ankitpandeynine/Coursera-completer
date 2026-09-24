@@ -550,7 +550,7 @@
       <img src="icons/icon32.png" alt="cA logo" style="width: 22px; height: 22px; border-radius: 5px; box-shadow: 0 0 8px rgba(0, 230, 118, 0.3);">
       <h3 style="margin: 0;">⚡ Coursera AutoPilot</h3>
     </div>
-    <span class="version">v9.5</span>
+    <span class="version">v9.6</span>
   </div>
 
   <!-- Navigation Tabs -->
@@ -672,7 +672,30 @@
       </div>
     </div>
 
+    <!-- Automation Focus Mode -->
+    <div class="control-group">
+      <label>
+        <div class="label-title">
+          <span>Course Focus Mode</span>
+          <span class="label-hint">Item filtering</span>
+        </div>
+        <select id="focusModeSelect" class="provider-select">
+          <option value="all">🎯 Complete All Items (Videos, Readings & Quizzes)</option>
+          <option value="quizzes_only">🧠 Only Practice & Quizzes (Skip Videos/Readings)</option>
+          <option value="videos_only">🎬 Only Videos & Readings (Skip Quizzes/Assignments)</option>
+          <option value="pending_only">⚡ Only Incomplete Items (Skip Already Green Marked)</option>
+        </select>
+      </label>
+    </div>
+
     <!-- Automation Checkboxes -->
+    <div class="control-group">
+      <label class="checkbox-label" title="Verifies green checkmark in sidebar before advancing. Replays video once if completion was not recorded by Coursera.">
+        <input type="checkbox" id="strictCompletionCB" checked> 
+        <span>Strict Completion Guard (Verify Green Mark & Replay)</span>
+      </label>
+    </div>
+
     <div class="control-group">
       <label class="checkbox-label">
         <input type="checkbox" id="autoSolveCB" checked> 
