@@ -22,7 +22,7 @@
 
 * **🧠 Multi-Provider AI Quiz Auto-Solver:** Automatically parses practice quiz questions, code snippets, multiple-choice options, and formulas. Dynamically queries AI models, marks correct choices, agrees to honor codes, and submits assignments.
 * **💬 Coursera AI Coach & Dialogue Automation:** Automatically participates in Coursera's interactive AI Dialogue scenarios, generating thoughtful humanized student responses and advancing past completion screens.
-* **⏩ Safe Speed Spoofing (Up to 16x):** Multi-tier speed engine (`Hybrid`, `Native`, `Virtual`) with pitch correction. Spoofs reported playback velocity to Coursera's backend at 1.0x so completion is saved legitimately.
+* **⏩ Safe Speed Spoofing (Up to 16x):** Multi-tier speed engine (`Hybrid`, `Native`, `Virtual`) with pitch correction. Spoofs reported playback velocity to Coursera's backend at 1.0x so completion is saved legitimately. (Prefer 2x at night and sleep as many courses can't accept 16x bypass)
 * **👻 True Background Play:** Overrides visibility APIs (`document.hidden`, `visibilityState`) so lectures keep playing even when you switch tabs or minimize the window.
 * **⏭️ Smart Auto-Navigation:** Detects video conclusion, passing grades, or completed readings and transitions to the next course item seamlessly.
 * **🛑 In-Video Checkpoint & Popup Skipper:** Bypasses mid-video pause checkpoints, practice popups, and dismisses alert dialogs.
