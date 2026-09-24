@@ -1,12 +1,33 @@
 {
   "manifest_version": 3,
-  "name": "Coursera Ultimate AutoPilot",
-  "version": "5.0",
-  "description": "Auto-plays videos, spoofs speed to 3x, skips popups, auto-completes readings, and auto-navigates.",
+  "name": "Coursera AI AutoPilot",
+  "version": "9.5",
+  "description": "Auto-plays videos with safe speed spoofing, skips popups, auto-completes readings, auto-navigates, and uses Gemini to solve practice questions and quizzes.",
   "homepage_url": "https://github.com/ankitpandeynine/Coursera-completer",
   "permissions": ["storage"],
+  "host_permissions": [
+    "https://generativelanguage.googleapis.com/*",
+    "https://api.groq.com/*",
+    "https://openrouter.ai/*",
+    "https://integrate.api.nvidia.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
   "action": {
-    "default_popup": "popup.html"
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
   },
   "content_scripts": [
     {
@@ -19,6 +40,12 @@
       "matches": ["*://*.coursera.org/*"],
       "js": ["content.js"],
       "run_at": "document_start"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["main_world.js"],
+      "matches": ["*://*.coursera.org/*"]
     }
   ]
 }

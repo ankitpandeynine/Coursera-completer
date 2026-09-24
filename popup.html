@@ -1,48 +1,727 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Coursera AI AutoPilot</title>
   <style>
-    body { font-family: Arial, sans-serif; width: 260px; padding: 15px; background: #f9f9f9; margin: 0; }
-    h3 { margin-top: 0; color: #0056D2; font-size: 15px; border-bottom: 1px solid #ddd; padding-bottom: 6px; }
-    .control-group { margin-bottom: 12px; }
-    label { font-size: 13px; display: flex; align-items: center; justify-content: space-between; cursor: pointer; }
-    input[type="number"] { width: 60px; padding: 4px; border: 1px solid #ccc; border-radius: 4px; font-weight: bold; }
-    .checkbox-label { justify-content: flex-start; gap: 8px; }
-    
-    /* New GitHub Footer Styles */
-    .footer { margin-top: 15px; text-align: center; font-size: 12px; border-top: 1px solid #ddd; padding-top: 12px; }
-    .footer a { color: #24292e; text-decoration: none; display: flex; align-items: center; justify-content: center; gap: 6px; font-weight: bold; transition: color 0.2s;}
-    .footer a:hover { color: #0056D2; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      width: 375px;
+      padding: 14px;
+      background: #fbfbfd;
+      color: #1a1a1a;
+      overflow-x: hidden;
+    }
+
+    /* Header */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 2px solid #eef2f7;
+      padding-bottom: 10px;
+      margin-bottom: 12px;
+    }
+    h3 {
+      color: #0056D2;
+      font-size: 15px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .version {
+      font-size: 11px;
+      color: #6c757d;
+      background: #e9ecef;
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-weight: 600;
+    }
+
+    /* Tabs */
+    .nav-tabs {
+      display: flex;
+      background: #eceff4;
+      padding: 3px;
+      border-radius: 8px;
+      gap: 3px;
+      margin-bottom: 12px;
+    }
+    .tab-btn {
+      flex: 1;
+      padding: 6px 4px;
+      border: none;
+      background: transparent;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      color: #6c757d;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      transition: all 0.18s ease;
+    }
+    .tab-btn:hover {
+      color: #111;
+    }
+    .tab-btn.active {
+      background: #ffffff;
+      color: #0056D2;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .dot-badge {
+      width: 6px;
+      height: 6px;
+      background: #00E676;
+      border-radius: 50%;
+      display: none;
+    }
+    .dot-badge.active {
+      display: inline-block;
+    }
+
+    /* Tab Content Panes */
+    .tab-pane {
+      display: none;
+    }
+    .tab-pane.active {
+      display: block;
+    }
+
+    /* Controls Tab */
+    .control-group {
+      margin-bottom: 9px;
+      background: #ffffff;
+      border: 1px solid #e5e8ec;
+      border-radius: 8px;
+      padding: 8px 12px;
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+    .control-group:focus-within {
+      border-color: #0056D2;
+      box-shadow: 0 0 0 2px rgba(0, 86, 210, 0.1);
+    }
+    label {
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+      font-weight: 500;
+    }
+    .label-title {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .label-hint {
+      font-size: 10px;
+      color: #6c757d;
+      font-weight: 400;
+    }
+    input[type="number"] {
+      width: 58px;
+      padding: 5px 6px;
+      border: 1px solid #ced4da;
+      border-radius: 6px;
+      font-weight: 700;
+      font-size: 13px;
+      text-align: center;
+      color: #0056D2;
+      outline: none;
+    }
+    .provider-select {
+      width: 175px;
+      padding: 5px 6px;
+      border: 1px solid #ced4da;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      color: #1a1a1a;
+      background: #fff;
+      outline: none;
+      cursor: pointer;
+    }
+
+    /* Provider Status & Cooldowns */
+    .provider-status-card {
+      background: #ffffff;
+      border: 1px solid #e5e8ec;
+      border-radius: 8px;
+      padding: 8px 10px;
+      margin-bottom: 9px;
+    }
+    .status-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 6px;
+    }
+    .status-card-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: #4a5568;
+    }
+    .cooldown-reset-btn {
+      background: #f1f5f9;
+      border: 1px solid #cbd5e1;
+      color: #475569;
+      font-size: 9.5px;
+      font-weight: 600;
+      padding: 2px 7px;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .cooldown-reset-btn:hover {
+      background: #e2e8f0;
+      color: #0f172a;
+    }
+    .status-chips-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 5px;
+    }
+    .status-chip {
+      font-size: 10px;
+      padding: 3px 6px;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .status-chip.ready {
+      background: #e8f5e9;
+      color: #1b5e20;
+      border: 1px solid #c8e6c9;
+    }
+    .status-chip.cooldown {
+      background: #fff8e1;
+      color: #b78103;
+      border: 1px solid #ffe082;
+      animation: pulse-warn 1.5s infinite alternate;
+    }
+    .status-chip.unset {
+      background: #f1f5f9;
+      color: #94a3b8;
+      border: 1px solid #e2e8f0;
+    }
+    @keyframes pulse-warn {
+      0% { opacity: 0.85; }
+      100% { opacity: 1; }
+    }
+
+    /* Collapsible API Keys Section */
+    .keys-card {
+      background: #ffffff;
+      border: 1px solid #e5e8ec;
+      border-radius: 8px;
+      margin-bottom: 9px;
+      overflow: hidden;
+    }
+    .keys-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      background: #f8fafc;
+      cursor: pointer;
+      font-size: 11.5px;
+      font-weight: 700;
+      color: #1e293b;
+      user-select: none;
+    }
+    .keys-card-header:hover {
+      background: #f1f5f9;
+    }
+    .keys-drawer {
+      padding: 8px 12px 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      border-top: 1px solid #eef2f6;
+    }
+    .key-field {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .key-label-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 11px;
+      font-weight: 600;
+      color: #334155;
+    }
+    .free-pill {
+      font-size: 9px;
+      font-weight: 700;
+      background: #e6fcf5;
+      color: #0ca678;
+      padding: 1px 5px;
+      border-radius: 4px;
+      margin-left: 3px;
+    }
+    .get-key-link {
+      font-size: 10px;
+      color: #0056D2;
+      text-decoration: none;
+      font-weight: 600;
+    }
+    .get-key-link:hover {
+      text-decoration: underline;
+    }
+    .key-input {
+      width: 100%;
+      padding: 5px 8px;
+      border: 1px solid #cbd5e1;
+      border-radius: 5px;
+      font-size: 11.5px;
+      font-family: ui-monospace, Menlo, Monaco, Consolas, monospace;
+      outline: none;
+    }
+    .key-input:focus {
+      border-color: #0056D2;
+    }
+    .provider-badge-tag {
+      font-size: 9.5px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: #e0f2fe;
+      color: #0369a1;
+      font-weight: 700;
+      display: inline-block;
+      margin-left: 6px;
+    }
+
+    .checkbox-label {
+      justify-content: flex-start;
+      gap: 10px;
+      user-select: none;
+    }
+    .checkbox-label input[type="checkbox"] {
+      accent-color: #0056D2;
+      width: 16px;
+      height: 16px;
+      cursor: pointer;
+      margin: 0;
+    }
+
+    /* AI Quiz Solution Viewer */
+    .quiz-meta {
+      background: #f0f4f9;
+      border-radius: 8px;
+      padding: 8px 12px;
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border: 1px solid #e1e7ee;
+    }
+    .quiz-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: #0056D2;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 230px;
+    }
+    .quiz-time {
+      font-size: 10px;
+      color: #666;
+      font-weight: 500;
+    }
+
+    .question-card {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 10px 12px;
+      margin-bottom: 10px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    }
+    .q-prompt-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: #1a1a1a;
+      margin-bottom: 7px;
+      line-height: 1.4;
+    }
+    .options-list {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      margin-bottom: 8px;
+    }
+    .option-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 5px 9px;
+      border-radius: 6px;
+      font-size: 11.5px;
+      background: #f8fafc;
+      border: 1px solid #eef2f6;
+      color: #444;
+    }
+    .option-row.selected {
+      background: #e8f5e9;
+      border-color: #00E676;
+      color: #1b5e20;
+      font-weight: 700;
+      box-shadow: 0 1px 4px rgba(0, 230, 118, 0.15);
+    }
+    .selected-tag {
+      font-size: 9.5px;
+      color: #00796b;
+      background: #c8e6c9;
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 3px;
+    }
+    .rationale-box {
+      background: #1e1e24;
+      color: #e2e8f0;
+      border-radius: 6px;
+      padding: 7px 9px;
+      font-size: 11px;
+      line-height: 1.4;
+      margin-top: 6px;
+      border-left: 3px solid #00E676;
+    }
+    .rationale-title {
+      color: #00E676;
+      font-weight: 700;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 3px;
+    }
+
+    .raw-drawer {
+      margin-top: 10px;
+      border-top: 1px dashed #d0d7de;
+      padding-top: 8px;
+    }
+    .raw-toggle-btn {
+      width: 100%;
+      background: #edf2f7;
+      border: none;
+      padding: 5px;
+      border-radius: 5px;
+      font-size: 11px;
+      font-weight: 600;
+      color: #4a5568;
+      cursor: pointer;
+    }
+    .raw-content {
+      display: none;
+      margin-top: 6px;
+      background: #0f172a;
+      color: #a5f3fc;
+      padding: 8px;
+      border-radius: 6px;
+      font-size: 9.5px;
+      max-height: 140px;
+      overflow-y: auto;
+      font-family: ui-monospace, Menlo, Monaco, Consolas, monospace;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    .quiz-empty {
+      text-align: center;
+      padding: 24px 10px;
+      color: #718096;
+      font-size: 12px;
+      background: #ffffff;
+      border: 1px dashed #cbd5e1;
+      border-radius: 8px;
+      line-height: 1.5;
+    }
+    .quiz-empty-icon {
+      font-size: 26px;
+      margin-bottom: 6px;
+    }
+
+    /* Activity Log Section */
+    .log-section {
+      background: #1e1e24;
+      border-radius: 8px;
+      padding: 10px 12px;
+      color: #e0e0e0;
+      border: 1px solid #2d2d38;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    }
+    .log-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+    }
+    .log-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: #00E676;
+    }
+    .log-clear-btn {
+      background: rgba(255,255,255,0.1);
+      border: none;
+      color: #aaa;
+      font-size: 10px;
+      font-weight: 600;
+      padding: 3px 7px;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .log-clear-btn:hover {
+      background: rgba(255,255,255,0.2);
+      color: #fff;
+    }
+    .log-list {
+      max-height: 220px;
+      overflow-y: auto;
+      font-family: ui-monospace, Menlo, Monaco, Consolas, monospace;
+      font-size: 11px;
+      line-height: 1.45;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .log-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 6px;
+      word-break: break-word;
+    }
+    .log-time {
+      color: #888;
+      font-size: 9.5px;
+      flex-shrink: 0;
+      padding-top: 1px;
+    }
+    .log-msg { flex: 1; }
+    .log-msg.info { color: #d0d0d0; }
+    .log-msg.success { color: #00E676; font-weight: 600; }
+    .log-msg.warn { color: #ffd740; }
+    .log-msg.error { color: #ff5252; font-weight: 600; }
+
+    /* Footer */
+    .footer {
+      margin-top: 12px;
+      text-align: center;
+      font-size: 11.5px;
+      border-top: 1px solid #eef2f7;
+      padding-top: 9px;
+    }
+    .footer a {
+      color: #64748b;
+      text-decoration: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      font-weight: 600;
+    }
+    .footer a:hover {
+      color: #0056D2;
+    }
   </style>
 </head>
 <body>
-  <h3>Coursera Auto-Pilot</h3>
-  
-  <div class="control-group">
-    <label>
-      <strong>Force Speed (x):</strong>
-      <input type="number" id="speedInput" step="0.5" min="1" max="16" value="3">
-    </label>
+  <div class="header">
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <img src="icons/icon32.png" alt="cA logo" style="width: 22px; height: 22px; border-radius: 5px; box-shadow: 0 0 8px rgba(0, 230, 118, 0.3);">
+      <h3 style="margin: 0;">⚡ Coursera AutoPilot</h3>
+    </div>
+    <span class="version">v9.5</span>
   </div>
 
-  <div class="control-group">
-    <label class="checkbox-label">
-      <input type="checkbox" id="bgPlayCB" checked> 
-      <span>Enable Background Play</span>
-    </label>
+  <!-- Navigation Tabs -->
+  <div class="nav-tabs">
+    <button class="tab-btn active" data-tab="settings">⚡ Controls</button>
+    <button class="tab-btn" data-tab="quiz">🧠 AI Solution <span id="quizBadge" class="dot-badge"></span></button>
+    <button class="tab-btn" data-tab="logs">📋 Logs</button>
   </div>
 
-  <div class="control-group">
-    <label class="checkbox-label">
-      <input type="checkbox" id="autoNavigateCB" checked> 
-      <span>Auto-Navigate & Complete</span>
-    </label>
+  <!-- TAB 1: Controls -->
+  <div id="pane-settings" class="tab-pane active">
+    <!-- Playback Speed -->
+    <div class="control-group">
+      <label>
+        <div class="label-title">
+          <span>Force Speed</span>
+          <span class="label-hint">Safe limit: 0.25x - 16x</span>
+        </div>
+        <input type="number" id="speedInput" step="0.5" min="0.25" max="16" value="3">
+      </label>
+    </div>
+
+    <!-- Speed Force Method -->
+    <div class="control-group">
+      <label>
+        <div class="label-title">
+          <span>Force Method</span>
+          <span class="label-hint">Alternative speed engines</span>
+        </div>
+        <select id="forceMethodSelect" class="provider-select">
+          <option value="hybrid">🚀 Hybrid (Native Lock + Micro-Step Assist - Recommended)</option>
+          <option value="native">🔒 Hard Native Override (Instance & Prototype Lock)</option>
+          <option value="virtual">⏩ Virtual Micro-Step (Fast Frame Advance for DRM)</option>
+        </select>
+      </label>
+    </div>
+
+    <!-- AI Provider Selection -->
+    <div class="control-group">
+      <label>
+        <div class="label-title">
+          <span>AI Engine</span>
+          <span class="label-hint">Auto-failover on rate limits</span>
+        </div>
+        <select id="providerSelect" class="provider-select">
+          <option value="auto">🔄 Auto-Failover (Recommended)</option>
+          <option value="groq">⚡ Groq (Llama 3.3 70B / 8B - Free)</option>
+          <option value="gemini">🌟 Google Gemini (Auto-Detected)</option>
+          <option value="openrouter">🌐 OpenRouter (Free Models)</option>
+          <option value="nvidia">🟢 NVIDIA NIM (Llama 3.3 70B)</option>
+        </select>
+      </label>
+    </div>
+
+    <!-- Provider Live Cooldown / Status Monitor -->
+    <div class="provider-status-card">
+      <div class="status-card-header">
+        <span class="status-card-title">📡 AI Status & Cooldowns</span>
+        <button id="resetCooldownsBtn" type="button" class="cooldown-reset-btn" title="Reset all provider cooldowns">Reset Cooldowns</button>
+      </div>
+      <div class="status-chips-grid">
+        <div class="status-chip unset" id="chip-groq">
+          <span>Groq</span>
+          <span class="chip-state">Checking...</span>
+        </div>
+        <div class="status-chip unset" id="chip-gemini">
+          <span>Gemini</span>
+          <span class="chip-state">Checking...</span>
+        </div>
+        <div class="status-chip unset" id="chip-openrouter">
+          <span>OpenRouter</span>
+          <span class="chip-state">Checking...</span>
+        </div>
+        <div class="status-chip unset" id="chip-nvidia">
+          <span>NVIDIA</span>
+          <span class="chip-state">Checking...</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Collapsible API Keys Section -->
+    <div class="keys-card">
+      <div class="keys-card-header" id="toggleKeysBtn">
+        <span>🔑 Configure Free AI API Keys</span>
+        <span id="keysArrow">▼</span>
+      </div>
+      <div id="keysDrawer" class="keys-drawer">
+        <div class="key-field">
+          <div class="key-label-row">
+            <span class="key-name">⚡ Groq Cloud <span class="free-pill">100% Free &amp; Fast</span></span>
+            <a href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer" class="get-key-link">Get Free Key ↗</a>
+          </div>
+          <input type="password" id="groqApiKeyInput" placeholder="gsk_..." class="key-input">
+        </div>
+
+        <div class="key-field">
+          <div class="key-label-row">
+            <span class="key-name">🌟 Google Gemini <span class="free-pill">AI Studio Free</span></span>
+            <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" class="get-key-link">Get Free Key ↗</a>
+          </div>
+          <input type="password" id="geminiApiKeyInput" placeholder="AI Studio Key" class="key-input">
+        </div>
+
+        <div class="key-field">
+          <div class="key-label-row">
+            <span class="key-name">🌐 OpenRouter <span class="free-pill">Free Tier</span></span>
+            <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer" class="get-key-link">Get Free Key ↗</a>
+          </div>
+          <input type="password" id="openRouterApiKeyInput" placeholder="sk-or-..." class="key-input">
+        </div>
+
+        <div class="key-field">
+          <div class="key-label-row">
+            <span class="key-name">🟢 NVIDIA NIM <span class="free-pill">Developer Trial</span></span>
+            <a href="https://build.nvidia.com" target="_blank" rel="noopener noreferrer" class="get-key-link">Get Free Key ↗</a>
+          </div>
+          <input type="password" id="nvidiaApiKeyInput" placeholder="nvapi-..." class="key-input">
+        </div>
+      </div>
+    </div>
+
+    <!-- Automation Checkboxes -->
+    <div class="control-group">
+      <label class="checkbox-label">
+        <input type="checkbox" id="autoSolveCB" checked> 
+        <span>Auto-Solve Practice & Quizzes</span>
+      </label>
+    </div>
+
+    <div class="control-group">
+      <label class="checkbox-label">
+        <input type="checkbox" id="bgPlayCB" checked> 
+        <span>Enable Background Play</span>
+      </label>
+    </div>
+
+    <div class="control-group">
+      <label class="checkbox-label">
+        <input type="checkbox" id="autoNavigateCB" checked> 
+        <span>Auto-Navigate Next Item</span>
+      </label>
+    </div>
   </div>
 
-  <!-- GitHub Link Footer -->
+  <!-- TAB 2: AI Solution Viewer -->
+  <div id="pane-quiz" class="tab-pane">
+    <div id="quizSolutionContainer">
+      <div class="quiz-empty">
+        <div class="quiz-empty-icon">🧠</div>
+        No quiz solved yet.<br>
+        Open a quiz on Coursera to view live AI answers, step-by-step reasoning, and marked choices right here!
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB 3: Activity & Error Log -->
+  <div id="pane-logs" class="tab-pane">
+    <div class="log-section">
+      <div class="log-header">
+        <span class="log-title">📋 Activity & Error Log</span>
+        <button id="clearLogsBtn" type="button" class="log-clear-btn" title="Clear log history">Clear</button>
+      </div>
+      <div id="logList" class="log-list">
+        <div class="log-empty" style="color: #777; text-align: center; padding: 12px 0;">No activity recorded yet.</div>
+      </div>
+    </div>
+  </div>
+
   <div class="footer">
-    <a href="https://github.com/ankitpandeynine/Coursera-completer" target="_blank" rel="noopener noreferrer" title="View source code on GitHub">
-      <svg height="16" width="16" viewBox="0 0 16 16" fill="currentColor">
+    <a href="https://github.com/ankitpandeynine/Coursera-completer" target="_blank" rel="noopener noreferrer">
+      <svg height="14" width="14" viewBox="0 0 16 16" fill="currentColor">
         <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path>
       </svg>
       Star on GitHub
