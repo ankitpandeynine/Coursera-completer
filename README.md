@@ -1,65 +1,161 @@
-# 🚀 Coursera Ultimate AutoPilot
+# ⚡ Coursera AI AutoPilot (v9.5)
 
-Welcome to **Coursera Ultimate AutoPilot**! This Chrome extension is designed to completely automate your Coursera learning experience. Sit back and let the extension handle the videos, readings, pop-ups, and navigation for you.
+<p align="center">
+  <img src="icons/icon128.png" alt="Coursera AI AutoPilot Logo" width="110" height="110" style="border-radius: 24px; box-shadow: 0 8px 24px rgba(0, 86, 210, 0.4);">
+</p>
+
+<p align="center">
+  <b>The ultimate autonomous study assistant for Coursera.</b><br>
+  Automates video playback with server-safe speed spoofing, skips popups, completes readings, passes AI dialogue sessions, and solves practice quizzes with multi-provider AI (Gemini, Groq, OpenRouter, NVIDIA).
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Version-9.5-0056D2?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/badge/Manifest-V3-success?style=flat-square" alt="Manifest V3">
+  <img src="https://img.shields.io/badge/AI%20Providers-Gemini%20%7C%20Groq%20%7C%20OpenRouter%20%7C%20NVIDIA-8A2BE2?style=flat-square" alt="AI Providers">
+  <img src="https://img.shields.io/badge/License-MIT-blue?style=flat-square" alt="License">
+</p>
 
 ---
 
 ## ✨ Features
 
-* **⏩ Speed Spoofing (Bypass Limits):** Watch videos at blazing fast speeds (default 3.0x, up to 16.0x). The extension tricks Coursera's servers into thinking you are watching at 1.0x, so your progress is always saved without errors.
-* **👻 Background Play:** Switching tabs or minimizing the window? No problem. This extension forces Coursera to keep playing your video even when the tab is hidden.
-* **⏭️ Auto-Navigate:** Automatically clicks the blue "Go to next item" button the exact second a video finishes or a module is cleared.
-* **📖 Reading Auto-Complete:** Lands on a reading page? The extension waits out the mandatory 30-second timer and automatically clicks "Mark as completed", then instantly jumps to the next lecture.
-* **🛑 Pop-Up Skipper:** Instantly detects and clicks "Skip" on any mid-video quizzes or prompts so your flow is never interrupted.
-* **🔇 Error Handler:** Automatically detects and closes annoying "Skipping forward is only available..." error banners.
+* **🧠 Multi-Provider AI Quiz Auto-Solver:** Automatically parses practice quiz questions, code snippets, multiple-choice options, and formulas. Dynamically queries AI models, marks correct choices, agrees to honor codes, and submits assignments.
+* **💬 Coursera AI Coach & Dialogue Automation:** Automatically participates in Coursera's interactive AI Dialogue scenarios, generating thoughtful humanized student responses and advancing past completion screens.
+* **⏩ Safe Speed Spoofing (Up to 16x):** Multi-tier speed engine (`Hybrid`, `Native`, `Virtual`) with pitch correction. Spoofs reported playback velocity to Coursera's backend at 1.0x so completion is saved legitimately.
+* **👻 True Background Play:** Overrides visibility APIs (`document.hidden`, `visibilityState`) so lectures keep playing even when you switch tabs or minimize the window.
+* **⏭️ Smart Auto-Navigation:** Detects video conclusion, passing grades, or completed readings and transitions to the next course item seamlessly.
+* **🛑 In-Video Checkpoint & Popup Skipper:** Bypasses mid-video pause checkpoints, practice popups, and dismisses alert dialogs.
+* **⏱️ Locked Module Discrimination:** Automatically identifies locked assignments (`"You still have some learning to complete"`) or items taking longer than 20s to load, gracefully advancing without infinite loops.
 
 ---
 
-## 🛠️ Installation Guide (Chrome / Edge)
+## 🔑 How to Get Free AI API Keys
 
-Since this extension is not on the Chrome Web Store, you will need to install it manually using Developer Mode. It only takes 30 seconds!
+The extension requires an API key from at least **one** of the supported providers to auto-solve quizzes and dialogues. All supported providers offer generous **100% free tiers**:
 
-1. **Download the Code**
-   Click the green **Code** button at the top of this repository and select **Download ZIP**. Extract the ZIP file to a folder on your computer. (Alternatively, you can `git clone` the repo).
-2. **Open Extensions Page**
-   Open your browser and navigate to `chrome://extensions/` (or `edge://extensions/` if you are on Edge).
-3. **Enable Developer Mode**
-   Toggle the **Developer mode** switch in the top right corner of the screen.
-4. **Load the Extension**
-   Click the **Load unpacked** button in the top left corner.
-5. **Select the Folder**
-   Select the unzipped folder containing the extension files (make sure you select the folder that contains the `manifest.json` file).
-6. **Pin It!**
-   Click the puzzle piece icon 🧩 in your browser toolbar and "pin" the Coursera Auto-Pilot extension so you can access the menu easily.
+| Provider | Recommended Model | Free Tier? | Link |
+| :--- | :--- | :--- | :--- |
+| **Google Gemini** *(Recommended)* | `gemini-2.5-flash` / `gemini-1.5-flash` | **Yes (Free tier)** | [Get Gemini Key](https://aistudio.google.com/app/apikey) |
+| **Groq Cloud** | `llama-3.3-70b-versatile` | **Yes (Ultra-fast & Free)** | [Get Groq Key](https://console.groq.com/keys) |
+| **OpenRouter** | `deepseek-chat` / `free` models | **Yes (Free tier)** | [Get OpenRouter Key](https://openrouter.ai/keys) |
+| **NVIDIA NIM** | `meta/llama-3.1-70b-instruct` | **Yes (Free 1,000 credits)** | [Get NVIDIA Key](https://build.nvidia.com/) |
 
 ---
 
-## 🎮 How to Use
+### Step-by-Step API Key Setup Guides
 
-Once installed, the extension runs entirely in the background. 
+#### 1. Google Gemini API (Recommended)
+1. Go to [Google AI Studio (aistudio.google.com)](https://aistudio.google.com/app/apikey).
+2. Sign in with your Google account.
+3. Click the blue **"Create API key"** button.
+4. Select or create any Google Cloud project, then click **"Create API key in existing project"**.
+5. Copy your key (starts with `AIzaSy...`).
 
-1. Navigate to any Coursera course.
-2. Click on the first video or reading material.
-3. **Hands off!** The extension will take over, auto-playing the video, answering prompts, and clicking to the next items.
-4. **Customize Settings:** Click the extension icon in your browser toolbar to open the popup menu. From here, you can:
-   * Adjust your forced playback speed (1x to 16x).
-   * Toggle Background Play on or off.
-   * Toggle the Master Auto-Navigator on or off.
+#### 2. Groq Cloud API
+1. Visit the [Groq Console](https://console.groq.com/keys).
+2. Sign in with Google or GitHub.
+3. Click **"Create API Key"**, give it a name (e.g., `Coursera AutoPilot`), and copy your key (starts with `gsk_...`).
+
+#### 3. OpenRouter API
+1. Go to [OpenRouter Keys](https://openrouter.ai/keys).
+2. Sign up or log in.
+3. Click **"Create Key"**, assign a name, and copy the generated token (starts with `sk-or-...`).
+
+#### 4. NVIDIA NIM API
+1. Go to [NVIDIA Build](https://build.nvidia.com/).
+2. Click **Sign In** in the top right.
+3. Select any model (e.g., *Meta Llama 3.1 70B*) and click **"Get API Key"**.
+4. Generate and copy your NVIDIA token (starts with `nvapi-...`).
 
 ---
 
-## 📂 File Structure
+## 📥 How to Paste API Keys into the Extension
 
-* `manifest.json`: The configuration file that tells Chrome how to load the extension.
-* `content.js`: The "brain" of the extension. It constantly scans the visible webpage to auto-click buttons, detect reading timers, and handle navigation.
-* `main_world.js`: The stealth script. It overrides the browser's native video player functions to safely spoof your playback speed back to Coursera's servers.
-* `popup.html` & `popup.js`: The user interface and logic for the extension's dropdown menu.
+1. **Open the Extension Popup:**
+   * Click the **Coursera AutoPilot icon (cA logo)** in your Chrome browser extensions toolbar (pin it if it's hidden under the puzzle icon 🧩).
+2. **Navigate to the Controls / Settings Tab:**
+   * In the popup, make sure you are on the **⚡ Controls** tab.
+3. **Enter Your Key:**
+   * Scroll down to the **"AI Provider API Keys"** section.
+   * Paste your copied key into the corresponding field:
+     * **Gemini API Key:** Paste your `AIzaSy...` key here.
+     * **Groq API Key:** Paste your `gsk_...` key here.
+     * **OpenRouter API Key:** Paste your `sk-or-...` key here.
+     * **NVIDIA API Key:** Paste your `nvapi-...` key here.
+4. **Enable Automation:**
+   * Toggle **"Auto-Solve Quizzes"** to **ON**.
+   * Toggle **"Auto-Navigate"** to **ON**.
+   * Pick your preferred primary provider from the dropdown (or leave as Google Gemini).
+5. **Done!** Your key is automatically saved to your local browser storage. The extension will automatically test and cycle through models with automatic failover!
+
+---
+
+## 🛠️ Installation Guide (Chrome / Edge / Brave)
+
+1. **Download or Clone the Repository:**
+   ```bash
+   git clone https://github.com/ankitpandeynine/Coursera-completer.git
+   ```
+   *(Or download the ZIP from GitHub and extract it to a folder).*
+
+2. **Open the Extensions Manager:**
+   * In Google Chrome, go to `chrome://extensions/`
+   * In Microsoft Edge, go to `edge://extensions/`
+   * In Brave, go to `brave://extensions/`
+
+3. **Enable Developer Mode:**
+   * Toggle the **"Developer mode"** switch in the top-right corner.
+
+4. **Load the Extension:**
+   * Click **"Load unpacked"** in the top-left corner.
+   * Select the folder containing `manifest.json`.
+
+5. **Pin the Extension:**
+   * Click the puzzle icon 🧩 in your browser toolbar and pin **Coursera AI AutoPilot**.
+
+---
+
+## 🎮 How to Use on Coursera
+
+1. Open any Coursera course page (e.g., `coursera.org/learn/...`).
+2. Click the **Coursera AutoPilot** icon in your toolbar, enter your API key, and configure your desired playback speed (e.g., `3.0x`).
+3. Click on any video, reading, or assignment.
+4. **Hands-free Automation:**
+   * **Videos:** Plays automatically at chosen speed, skips checkpoints, and auto-navigates upon completion.
+   * **Readings:** Waits the required duration and clicks *"Mark as completed"*.
+   * **Quizzes & Assignments:** Detects questions, queries Gemini/Groq, marks correct answers, accepts honor codes, and submits.
+   * **AI Dialogues:** Reads scenarios, writes humanized student responses, and submits replies to Coursera AI coaches.
+
+---
+
+## 📁 File Structure
+
+```
+├── manifest.json            # Manifest V3 extension configuration
+├── background.js           # Ephemeral multi-provider AI dispatcher & failover engine
+├── content.js              # Core automation engine, quiz solver & route coordinator
+├── main_world.js           # Stealth speed-spoofing engine & visibility spoofer
+├── popup.html              # Modern, sleek extension control interface
+├── popup.js                # Settings manager, real-time log streaming & solution viewer
+├── icons/                  # High-resolution extension brand icons (16, 32, 48, 128px)
+├── CHROMEWEBSTORE.md       # Chrome Web Store metadata & store description
+└── scratch/                # Unit test suites & automated validation scripts
+```
+
+---
+
+## 🔒 Privacy & Security
+
+* **Local Storage Only:** API keys and credentials never leave your browser; they are saved strictly in `chrome.storage.local`.
+* **Direct Official Endpoints:** Requests are made directly from your browser to official provider APIs (`googleapis.com`, `groq.com`, `openrouter.ai`, `nvidia.com`). No third-party proxy servers are involved.
 
 ---
 
 ## ⚠️ Disclaimer
 
-This extension is built for educational purposes and personal use. Please ensure you are actually learning the material! The creator is not responsible for any actions taken by Coursera regarding your account for using automated tools. 
+*This extension is created for educational and productivity research purposes. Please ensure you review course concepts and engage with the learning material. The authors assume no liability for individual platform usage.*
 
 ---
+
 **Made with ❤️ by [ankitpandeynine](https://github.com/ankitpandeynine)**
