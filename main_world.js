@@ -60,8 +60,8 @@
     }
 
     /* ========================================================================
-       ENGINE 1: PROTOTYPE PROPERTY INTERCEPTION
-       Intercepts all Coursera / React / Video.js attempts to reset playbackRate
+       ENGINE 1: PROTOTYPE PROPERTY INTERCEPTION (NON-BLOCKING & READY-AWARE)
+       Intercepts Coursera / Video.js playbackRate changes safely without stalling
        ======================================================================== */
     if (nativeRateDesc?.set) {
         try {
@@ -75,7 +75,19 @@
                     if (forceMode === 'virtual') {
                         setNativeRate(this, val);
                     } else {
-                        setNativeRate(this, targetSpeed);
+                        // Allow player initialization to negotiate initial streams without stall
+                        if (this.readyState >= 2) {
+                            setNativeRate(this, targetSpeed);
+                        } else {
+                            setNativeRate(this, val);
+                            const onReady = () => {
+                                setNativeRate(this, targetSpeed);
+                                this.removeEventListener('canplay', onReady);
+                                this.removeEventListener('playing', onReady);
+                            };
+                            this.addEventListener('canplay', onReady, { once: true, passive: true });
+                            this.addEventListener('playing', onReady, { once: true, passive: true });
+                        }
                     }
                 }
             });
@@ -88,7 +100,11 @@
                         return targetSpeed;
                     },
                     set: function(val) {
-                        setNativeRate(this, targetSpeed);
+                        if (this.readyState >= 2) {
+                            setNativeRate(this, targetSpeed);
+                        } else {
+                            setNativeRate(this, val);
+                        }
                     }
                 });
             }
@@ -98,19 +114,8 @@
     }
 
     /* ========================================================================
-       ENGINE 2: CAPTURE-PHASE EVENT SHIELD
-       Silences ratechange events so Coursera's player never triggers a reset.
-       (Pure stopImmediatePropagation without recursive setter calls)
-       ======================================================================== */
-    function handleRateChangeCapture(e) {
-        // Prevent Coursera's event listeners from detecting the rate change
-        e.stopImmediatePropagation();
-    }
-
-    window.addEventListener('ratechange', handleRateChangeCapture, true);
-
-    /* ========================================================================
-       ENGINE 3: INSTANCE-LEVEL ENFORCEMENT & PITCH PRESERVATION
+       ENGINE 2: INSTANCE-LEVEL ENFORCEMENT & PITCH PRESERVATION
+       Applies speed reliably once media is buffered and ready to play
        ======================================================================== */
     function hookMediaInstance(media) {
         if (!media || !(media instanceof HTMLMediaElement)) return;
@@ -125,32 +130,41 @@
 
         const applySpeed = () => {
             if (forceMode !== 'virtual') {
-                setNativeRate(media, targetSpeed);
+                if (media.readyState >= 1) {
+                    setNativeRate(media, targetSpeed);
+                }
             }
         };
 
-        applySpeed();
-
-        // Re-enforce on user or player interactions
-        media.addEventListener('play', applySpeed, true);
-        media.addEventListener('playing', applySpeed, true);
-        media.addEventListener('loadeddata', applySpeed, true);
-        media.addEventListener('seeked', applySpeed, true);
-
-        // Assist on timeupdate
-        media.addEventListener('timeupdate', () => {
+        if (media.readyState >= 2) {
             applySpeed();
-            checkAndAssistDrift(media);
-        }, true);
+        }
+
+        // Re-enforce cleanly on playback lifecycle events without blocking media loading
+        media.addEventListener('canplay', applySpeed, { passive: true });
+        media.addEventListener('play', applySpeed, { passive: true });
+        media.addEventListener('playing', applySpeed, { passive: true });
+        media.addEventListener('loadeddata', applySpeed, { passive: true });
+        media.addEventListener('seeked', applySpeed, { passive: true });
+
+        // Assist on timeupdate only in virtual mode (never causes seek loop in hybrid/native)
+        if (forceMode === 'virtual') {
+            media.addEventListener('timeupdate', () => {
+                checkAndAssistDrift(media);
+            }, { passive: true });
+        }
     }
 
     /* ========================================================================
-       ENGINE 4: SMART DRIFT ASSIST (Alternative Force)
-       Smoothly steps currentTime forward if hardware caps playback velocity
+       ENGINE 3: SAFE DRIFT ASSIST (VIRTUAL MODE ONLY)
+       Smoothly steps currentTime forward only if in virtual mode and playing smoothly
        ======================================================================== */
     function checkAndAssistDrift(media) {
         if (!media || media.paused || media.ended) return;
-        if (forceMode === 'native') return;
+        // Strictly only run drift assist if explicitly in virtual mode
+        if (forceMode !== 'virtual') return;
+        // NEVER seek while still buffering or seeking to prevent buffering deadlock
+        if (media.seeking || media.readyState < 3) return;
 
         const now = performance.now();
         let tracker = mediaTrackers.get(media);
@@ -166,8 +180,8 @@
         const deltaRealSec = (now - tracker.lastTimestamp) / 1000;
         tracker.lastTimestamp = now;
 
-        // Only evaluate on realistic playback time slices (150ms to 1200ms)
-        if (deltaRealSec < 0.15 || deltaRealSec > 1.2) {
+        // Only evaluate on realistic playback time slices (250ms to 1200ms)
+        if (deltaRealSec < 0.25 || deltaRealSec > 1.2) {
             tracker.lastTime = media.currentTime;
             return;
         }
@@ -175,14 +189,13 @@
         const deltaVideoSec = media.currentTime - tracker.lastTime;
         tracker.lastTime = media.currentTime;
 
-        // Skip check if paused, seeking, or still buffering
-        if (deltaVideoSec < 0 || media.seeking || media.readyState < 2) return;
+        if (deltaVideoSec < 0 || media.seeking || media.readyState < 3) return;
 
         const expectedAdvancement = deltaRealSec * targetSpeed;
         const lag = expectedAdvancement - deltaVideoSec;
 
-        // Micro-advance if lagging behind target by more than 0.08s
-        if (lag > 0.08 && lag < 1.5 && media.duration && media.currentTime + lag < media.duration) {
+        // Micro-advance only if lagging significantly behind target (>0.4s) while playing
+        if (lag > 0.4 && lag < 1.5 && media.duration && media.currentTime + lag < media.duration) {
             media.currentTime = Math.min(media.duration - 0.5, media.currentTime + lag);
             tracker.lastTime = media.currentTime;
         }

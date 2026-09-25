@@ -1,4 +1,4 @@
-// Coursera AI AutoPilot - Popup Controller v9.6
+// Coursera AI AutoPilot - Popup Controller v9.8
 // Multi-provider AI dispatcher, real-time cooldown tracking, solution viewer, and logs.
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -164,18 +164,28 @@ document.addEventListener('DOMContentLoaded', () => {
                     <div class="options-list">
             `;
 
-            (q.options || []).forEach((optText, oIdx) => {
-                const isSelected = Array.isArray(q.markedIndex) 
-                    ? q.markedIndex.includes(oIdx) 
-                    : q.markedIndex === oIdx;
-
+            if (q.type === 'text') {
+                const typedVal = q.markedText || (q.aiAnswerTexts && q.aiAnswerTexts[0]) || '';
                 html += `
-                    <div class="option-row ${isSelected ? 'selected' : ''}">
-                        <span>${isSingle ? (isSelected ? '●' : '○') : (isSelected ? '☑' : '☐')} ${escapeHtml(optText)}</span>
-                        ${isSelected ? `<span class="selected-tag">✓ Chosen by AI</span>` : ''}
+                    <div class="option-row selected" style="background: rgba(30, 166, 114, 0.08); border-color: rgba(30, 166, 114, 0.4); padding: 8px 12px; border-radius: 6px;">
+                        <span>✍️ <strong>Typed Answer:</strong> "${escapeHtml(typedVal)}"</span>
+                        <span class="selected-tag">✓ Typed by AI</span>
                     </div>
                 `;
-            });
+            } else {
+                (q.options || []).forEach((optText, oIdx) => {
+                    const isSelected = Array.isArray(q.markedIndex) 
+                        ? q.markedIndex.includes(oIdx) 
+                        : q.markedIndex === oIdx;
+
+                    html += `
+                        <div class="option-row ${isSelected ? 'selected' : ''}">
+                            <span>${isSingle ? (isSelected ? '●' : '○') : (isSelected ? '☑' : '☐')} ${escapeHtml(optText)}</span>
+                            ${isSelected ? `<span class="selected-tag">✓ Chosen by AI</span>` : ''}
+                        </div>
+                    `;
+                });
+            }
 
             html += `
                     </div>

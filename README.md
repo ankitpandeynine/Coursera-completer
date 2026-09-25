@@ -1,4 +1,4 @@
-# ⚡ Coursera AI AutoPilot (v9.6)
+# ⚡ Coursera AI AutoPilot (v9.8)
 
 <p align="center">
   <img src="icons/icon128.png" alt="Coursera AI AutoPilot Logo" width="110" height="110" style="border-radius: 24px; box-shadow: 0 8px 24px rgba(0, 86, 210, 0.4);">
@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-9.6-0056D2?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/badge/Version-9.8-0056D2?style=flat-square" alt="Version">
   <img src="https://img.shields.io/badge/Manifest-V3-success?style=flat-square" alt="Manifest V3">
   <img src="https://img.shields.io/badge/AI%20Providers-Gemini%20%7C%20Groq%20%7C%20OpenRouter%20%7C%20NVIDIA-8A2BE2?style=flat-square" alt="AI Providers">
   <img src="https://img.shields.io/badge/License-MIT-blue?style=flat-square" alt="License">
@@ -20,15 +20,16 @@
 
 ## ✨ Features
 
-* **🧠 Multi-Provider AI Quiz Auto-Solver:** Automatically parses practice quiz questions, code snippets, multiple-choice options, and formulas. Dynamically queries AI models, marks correct choices, agrees to honor codes, and submits assignments.
+* **🧠 Multi-Provider AI Quiz Auto-Solver (Radios, Checkboxes & Free-Text Fields):** Automatically parses practice quiz questions, code snippets, multiple-choice options, formulas, and free-text/fill-in-the-blank input fields. Dynamically queries AI models, fills text answers via React state synchronization, marks correct choices, agrees to honor codes, and submits assignments.
+* **💬 Multi-Turn AI Coach & Dialogue Automation:** Automatically converses with Coursera's interactive AI Dialogue coach across every turn. Reads replies from the coach, tracks conversation history, drafts humanized technical answers, types and sends replies, and clicks "End Dialogue" with modal confirmation upon completion.
+* **🛡️ Strict Green Tick Confirmation & Reattempt-Once Safeguard:** Inspects the sidebar outline to verify items are marked green before advancing. If an item or video is completed but not marked green, the extension reattempts it strictly once and proceeds forward, ensuring courses are 100% completed without getting stuck in infinite loops.
+* **⏱️ Global Stuck Watchdogs (3-Min Auto-Refresh & 2-Min Auto-Skip):** If a page freezes or remains stuck for more than 3 minutes, the extension automatically refreshes the page once to unfreeze the session. If stuck for more than 2 minutes without video playback, it automatically advances to the next item.
+* **⏩ Optimized Hybrid Speed Force Engine:** Seamlessly enforces playback speeds (0.25x - 16x) with pitch correction without stalling video buffering or causing media playback freezes.
 * **🎯 Course Focus Modes:**
   * **🎯 Complete All Items:** Sequentially completes all videos, readings, discussions, and quizzes.
   * **🧠 Practice Quizzes Only:** Skips videos and readings, jumping directly to practice questions and quizzes.
   * **🎬 Videos & Readings Only:** Focuses exclusively on lectures and readings, skipping quizzes and assignments.
   * **⚡ Incomplete Items Only:** Skips every item already marked green in the sidebar, jumping straight to pending items.
-* **🛡️ Strict Completion Guard (Sidebar Green Checkmark & Replay-Once):** Inspects the sidebar outline to verify items are marked green before advancing. If an item is completed but not yet marked green by Coursera's servers, the extension waits for sync and automatically replays the video once to prevent gaps.
-* **💬 Coursera AI Coach & Dialogue Automation:** Automatically participates in Coursera's interactive AI Dialogue scenarios, generating thoughtful humanized student responses and advancing past completion screens.
-* **⏩ Safe Speed Spoofing (Up to 16x):** Multi-tier speed engine (`Hybrid`, `Native`, `Virtual`) with pitch correction. Spoofs reported playback velocity to Coursera's backend at 1.0x so completion is saved legitimately. (Prefer 2x at night and sleep as many courses can't accept 16x bypass)
 * **👻 True Background Play:** Overrides visibility APIs (`document.hidden`, `visibilityState`) so lectures keep playing even when you switch tabs or minimize the window.
 * **⏭️ Smart Auto-Navigation:** Detects video conclusion, passing grades, or completed readings and transitions to the next course item seamlessly.
 * **🛑 In-Video Checkpoint & Popup Skipper:** Bypasses mid-video pause checkpoints, practice popups, and dismisses alert dialogs.

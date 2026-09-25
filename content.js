@@ -1,14 +1,16 @@
 // ============================================================================
-// Coursera AI AutoPilot - Master Content Script (v9.6)
+// Coursera AI AutoPilot - Master Content Script (v9.8)
 // ============================================================================
 // Features:
 // 1. Guaranteed event-driven video speed enforcement (0.25x - 16x)
 // 2. Comprehensive action & error logging stored in chrome.storage
 // 3. Multi-provider AI practice question & quiz solver (Groq, Gemini, OpenRouter, NVIDIA)
-// 4. Strict Quiz Safeguard: NEVER skips or advances until ALL answers are marked & submitted
-// 5. Sidebar Green Checkmark Verification & Replay-Once Safeguard (prevents in-between gaps)
-// 6. Course Focus Modes: Quizzes Only, Videos Only, Pending/Incomplete Only, or All
-// 7. Auto-play, mid-video popup skip, and post-completion navigation
+// 4. Free-text & fill-in-the-blank question input solver with React state synchronization
+// 5. Multi-turn AI Dialogue coach automation (reads replies, keeps answering every turn)
+// 6. Strict Green Tick confirmation & reattempt-once safeguard (never gets stuck in loop)
+// 7. Global 2-minute stuck watchdog (auto-skips to next item if stuck on same page >2 min)
+// 8. Course Focus Modes: Quizzes Only, Videos Only, Pending/Incomplete Only, or All
+// 9. Auto-play, mid-video popup skip, and post-completion navigation
 // ============================================================================
 
 (function() {
@@ -32,7 +34,9 @@
     };
 
     let videoReplayMap = {}; // Tracks replayed videos by path to strictly replay only ONCE
+    let itemReattemptMap = {}; // Tracks reattempt count by item path to strictly reattempt only ONCE
     let videoEndedFirstSeenTime = 0; // Timestamp when video first ended on current page
+    let dialogueTurnCount = 1; // Counter for dialogue message turns
 
     function hasAnyApiKey() {
         return !!(state.geminiApiKey || state.groqApiKey || state.openRouterApiKey || state.nvidiaApiKey);
@@ -919,7 +923,12 @@
                            href.includes('/discussionprompt/') ||
                            href.includes('/graded-assignment/') ||
                            href.includes('/ungradedLti/') ||
-                           href.includes('/reading/');
+                           href.includes('/reading/') ||
+                           href.includes('/coach/') ||
+                           href.includes('/dialogue') ||
+                           href.includes('/guided-discussion') ||
+                           href.includes('/item/') ||
+                           href.includes('/peer/');
                 });
                 if (valid.length > links.length) {
                     links = valid;
@@ -934,7 +943,7 @@
 
         // 1. Check aria-labels on the element and its direct wrapper
         const elAria = (element.getAttribute('aria-label') || '').toLowerCase();
-        if (elAria.includes('not completed') || elAria.includes('incomplete') || elAria.includes('not started')) {
+        if (elAria.includes('not completed') || elAria.includes('incomplete') || elAria.includes('not started') || elAria.includes('failed') || elAria.includes('grade: 0%')) {
             return 'pending';
         }
         if (elAria.includes('completed') || elAria.includes('passed')) {
@@ -948,7 +957,7 @@
             const svgTitle = (svg.querySelector('title')?.textContent || '').toLowerCase();
             const combinedSvg = `${svgAria} ${svgTitle}`;
 
-            if (combinedSvg.includes('not completed') || combinedSvg.includes('incomplete') || combinedSvg.includes('not started')) {
+            if (combinedSvg.includes('not completed') || combinedSvg.includes('incomplete') || combinedSvg.includes('not started') || combinedSvg.includes('failed') || combinedSvg.includes('grade: 0%')) {
                 return 'pending';
             }
             if (combinedSvg.includes('completed') || combinedSvg.includes('passed')) {
@@ -983,13 +992,16 @@
         const hasCompletedClass = !!element.querySelector('[class*="completed" i], [class*="Completed" i], [data-testid*="completed" i], [data-testid*="Completed" i]');
         if (hasCompletedClass) {
             const text = (element.innerText || element.textContent || '').toLowerCase();
-            if (!text.includes('not completed') && !text.includes('incomplete')) {
+            if (!text.includes('not completed') && !text.includes('incomplete') && !text.includes('grade: 0%') && !text.includes('failed')) {
                 return 'completed';
             }
         }
 
         // 4. Text content checks (e.g. "Grade: 100%", "Completed", "Passed")
         const text = (element.innerText || element.textContent || '').toLowerCase();
+        if (text.includes('grade: 0%') || text.includes('grade: 0.0%') || text.includes('failed') || text.includes('try again') || text.includes('not passed')) {
+            return 'pending';
+        }
         if (text.includes('grade:') || text.includes('completed') || text.includes('passed')) {
             if (!text.includes('not completed') && !text.includes('incomplete')) {
                 return 'completed';
@@ -1126,14 +1138,6 @@
        COURSERA AI COACH & DIALOGUE AUTOMATION (HUMANIZED LEARNING SESSIONS)
        ======================================================================== */
     function isDialogueOrCoachItem(url = window.location.href) {
-        // STRICT GUARD: Quizzes, assignments, exams, and attempts are NEVER dialogues!
-        if (isQuizOrAssignmentUrl(url) || isQuizAttemptPage() || isQuizFeedbackPage() || hasQuizResultsMounted()) {
-            return false;
-        }
-        if (document.querySelector('video')) {
-            return false;
-        }
-
         try {
             const u = new URL(url);
             const p = u.pathname.toLowerCase();
@@ -1142,27 +1146,28 @@
             }
         } catch (e) {}
 
-        // Check specifically in the main center container (excluding nav, header, aside, drawer)
-        const mainEl = document.querySelector('main, [role="main"], article, .cds-FullscreenDialog-scrollContainer, #rendered-content');
-        if (!mainEl) return false;
-
-        // Active chat container for coach dialogue
-        if (mainEl.querySelector('[data-testid="coach-conversation"], [class*="dialogue" i]')) {
-            return true;
+        if (document.querySelector('video')) {
+            return false;
         }
 
-        // Start / End dialogue button in main content
-        const dialogueBtn = Array.from(mainEl.querySelectorAll('button')).find(b => {
-            if (b.closest('aside, nav, [role="navigation"], header, footer')) return false;
-            const t = (b.textContent || '').trim().toLowerCase();
-            return t === 'start dialogue' || t === 'begin dialogue' || t === 'end dialogue';
-        });
-        if (dialogueBtn) return true;
+        // Check specifically in the main center container (excluding nav, header, aside, drawer)
+        const mainEl = document.querySelector('main, [role="main"], article, .cds-FullscreenDialog-scrollContainer, #rendered-content');
+        if (mainEl) {
+            if (mainEl.querySelector('[data-testid="coach-conversation"], [class*="dialogue" i]')) {
+                return true;
+            }
+            const dialogueBtn = Array.from(mainEl.querySelectorAll('button')).find(b => {
+                if (b.closest('aside, nav, [role="navigation"], header, footer')) return false;
+                const t = (b.textContent || '').trim().toLowerCase();
+                return t === 'start dialogue' || t === 'begin dialogue' || t === 'end dialogue';
+            });
+            if (dialogueBtn) return true;
 
-        const mainText = (mainEl.textContent || '').toLowerCase();
-        if (mainText.includes("welcome! i'm coursera ai, your personalized guide") ||
-            (mainText.includes("dialogue is powered by ai") && (mainText.includes("scenario") || mainText.includes("start dialogue")))) {
-            return true;
+            const mainText = (mainEl.textContent || '').toLowerCase();
+            if (mainText.includes("welcome! i'm coursera ai, your personalized guide") ||
+                (mainText.includes("dialogue is powered by ai") && (mainText.includes("scenario") || mainText.includes("start dialogue")))) {
+                return true;
+            }
         }
 
         return false;
@@ -1175,28 +1180,65 @@
         return hasSummaryKeywords;
     }
 
-    function extractDialogueQuestion() {
+    function extractLatestCoachMessage() {
         const mainContainer = document.querySelector('[role="main"], [data-testid="coach-conversation"], [class*="dialogue" i], [class*="conversation" i], .cds-FullscreenDialog-scrollContainer') || document.body;
-        
-        const paragraphs = Array.from(mainContainer.querySelectorAll('p, [class*="message" i], [class*="bubble" i]')).filter(el => {
-            if (el.closest('textarea, input, button, header, aside, nav, [role="navigation"], [class*="input" i], [class*="composer" i], [class*="user" i]')) return false;
-            const text = (el.innerText || el.textContent || '').trim();
-            if (text.length < 20) return false;
-            if (text.includes("Dialogue is powered by AI")) return false;
-            if (text.includes("Welcome! I'm Coursera AI")) return false;
-            if (text.includes("Need help? Click")) return false;
-            if (text.includes("Today's goals")) return false;
-            if (text.includes("When you're ready, click")) return false;
-            return true;
-        });
 
-        if (paragraphs.length > 0) {
-            return paragraphs.slice(-3).map(p => (p.innerText || p.textContent || '').trim()).join('\n\n');
+        // 1. Target coach messages by feedback buttons (thumbs up / thumbs down / copy only exist on coach messages!)
+        const feedbackBtns = Array.from(mainContainer.querySelectorAll('button[aria-label*="thumb" i], button[aria-label*="helpful" i], button[aria-label*="copy" i], svg[data-testid*="thumb" i]'));
+        if (feedbackBtns.length > 0) {
+            const lastFeedback = feedbackBtns[feedbackBtns.length - 1];
+            let msgContainer = lastFeedback.closest('[class*="message" i], [class*="bubble" i], [class*="turn" i], [data-testid*="message" i]') || 
+                               lastFeedback.parentElement?.parentElement;
+            if (msgContainer) {
+                const clone = msgContainer.cloneNode(true);
+                clone.querySelectorAll('button, svg, textarea, input, [role="button"]').forEach(el => el.remove());
+                const text = (clone.innerText || clone.textContent || '').trim();
+                if (text.length > 15 && !text.includes("When you're ready, click")) return text;
+            }
         }
 
-        const text = (mainContainer.innerText || mainContainer.textContent || '').trim();
-        const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 25);
-        return lines.slice(-4).join('\n\n');
+        // 2. Chat message bubbles excluding student messages
+        const allMessages = Array.from(mainContainer.querySelectorAll('[data-testid*="message" i], [class*="message" i], [class*="bubble" i], [class*="chat-turn" i]')).filter(el => {
+            if (el.closest('textarea, input, [class*="composer" i], [class*="input" i], aside, nav, header')) return false;
+            const cl = (el.className || '').toLowerCase();
+            const text = (el.innerText || el.textContent || '').trim();
+            if (cl.includes('user') || cl.includes('student') || cl.includes('self') || cl.includes('right')) return false;
+            if (text.includes("Dialogue is powered by AI") || text.includes("When you're ready, click")) return false;
+            return text.length > 15;
+        });
+        if (allMessages.length > 0) {
+            const lastMsg = allMessages[allMessages.length - 1];
+            const clone = lastMsg.cloneNode(true);
+            clone.querySelectorAll('button, svg, textarea, input').forEach(el => el.remove());
+            const text = (clone.innerText || clone.textContent || '').trim();
+            if (text.length > 15) return text;
+        }
+
+        // 3. Fallback: paragraphs inside main container
+        const paragraphs = Array.from(mainContainer.querySelectorAll('p')).filter(el => {
+            if (el.closest('textarea, input, button, header, aside, nav, [class*="composer" i]')) return false;
+            const text = (el.innerText || el.textContent || '').trim();
+            if (text.length < 15) return false;
+            if (text.includes("Dialogue is powered by AI") || text.includes("When you're ready, click") || text.includes("Today's goals")) return false;
+            return true;
+        });
+        if (paragraphs.length > 0) {
+            return (paragraphs[paragraphs.length - 1].innerText || paragraphs[paragraphs.length - 1].textContent || '').trim();
+        }
+
+        return '';
+    }
+
+    function extractFullDialogueContext() {
+        const mainContainer = document.querySelector('[role="main"], [data-testid="coach-conversation"], [class*="dialogue" i], [class*="conversation" i], .cds-FullscreenDialog-scrollContainer') || document.body;
+        const paragraphs = Array.from(mainContainer.querySelectorAll('p, [class*="message" i]')).filter(el => {
+            if (el.closest('textarea, input, button, header, aside, nav, [class*="composer" i]')) return false;
+            const text = (el.innerText || el.textContent || '').trim();
+            if (text.length < 15) return false;
+            if (text.includes("Dialogue is powered by AI") || text.includes("When you're ready, click") || text.includes("Today's goals")) return false;
+            return true;
+        });
+        return paragraphs.slice(-6).map(p => (p.innerText || p.textContent || '').trim()).join('\n\n');
     }
 
     function findChatInputField() {
@@ -1269,7 +1311,7 @@
     }
 
     async function handleDialogueItem() {
-        // Stage 3: Summary / End screen (Screenshot 3)
+        // Stage 3: Summary / End screen
         if (isDialogueCompletedPage()) {
             if (state.autoNavigate && (Date.now() - lastNavTime > 3000)) {
                 const nextBtn = findNextItemButton();
@@ -1283,7 +1325,7 @@
             return;
         }
 
-        // Stage 1: Start Dialogue button (Screenshot 1)
+        // Stage 1: Start Dialogue button
         const startDialogueBtn = Array.from(document.querySelectorAll('button')).find(b => {
             if (b.disabled || b.getAttribute('aria-disabled') === 'true') return false;
             const t = (b.innerText || b.textContent || '').trim().toLowerCase();
@@ -1308,16 +1350,30 @@
             return t === 'end dialogue' || t === 'finish dialogue' || t === 'complete dialogue';
         });
         const chatText = (document.body ? document.body.innerText || '' : '').toLowerCase();
-        if (endDialogueBtn && (chatText.includes('click end dialogue') || chatText.includes('you have completed') || chatText.includes('that wraps up') || chatText.includes('great work completing'))) {
+        if (endDialogueBtn && (chatText.includes('click end dialogue') || chatText.includes('you have completed') || chatText.includes('that wraps up') || chatText.includes('great work completing') || dialogueTurnCount >= 5)) {
             addLog("Dialogue criteria completed. Clicking 'End Dialogue'...", "info");
             triggerClick(endDialogueBtn);
+            setTimeout(() => {
+                const confirmEndBtn = Array.from(document.querySelectorAll('[role="dialog"] button, .cds-dialog button')).find(b => {
+                    const t = (b.innerText || b.textContent || '').trim().toLowerCase();
+                    return t === 'end dialogue' || t === 'confirm' || t === 'yes';
+                });
+                if (confirmEndBtn) triggerClick(confirmEndBtn);
+            }, 800);
             return;
         }
 
-        // Stage 2: Active Dialogue Chat (Screenshot 2)
+        // Stage 2: Active Dialogue Chat (Multi-Turn Conversation)
         const chatInput = findChatInputField();
         if (!chatInput) {
             showStatus("AI Dialogue in progress...");
+            return;
+        }
+
+        // Check if coach is currently streaming / typing
+        const isCoachTyping = !!document.querySelector('[data-testid*="typing" i], [class*="typing" i], [aria-label*="typing" i], .cds-loadingDots');
+        if (isCoachTyping) {
+            showStatus("AI coach is typing reply...");
             return;
         }
 
@@ -1331,14 +1387,16 @@
             return;
         }
 
-        const questionText = extractDialogueQuestion();
-        if (!questionText || questionText.length < 25) {
+        const latestCoachMsg = extractLatestCoachMessage();
+        if (!latestCoachMsg || latestCoachMsg.length < 15) {
             showStatus("Waiting for AI coach prompt...");
             return;
         }
 
-        // Don't answer the exact same question repeatedly
-        if (lastAnsweredDialogueQuestion === questionText) {
+        const normalizedQuestion = latestCoachMsg.replace(/\s+/g, ' ').trim();
+        // Don't answer the exact same turn repeatedly
+        if (lastAnsweredDialogueQuestion === normalizedQuestion) {
+            showStatus("Response sent! Waiting for coach's next reply...");
             return;
         }
 
@@ -1348,21 +1406,25 @@
         }
 
         isGeneratingDialogueResponse = true;
-        addLog("Received dialogue scenario from Coursera AI. Generating humanized answer...", "info");
-        showStatus("Generating thoughtful, humanized response to AI coach...");
+        const dialogueContext = extractFullDialogueContext();
+        addLog(`AI Coach Turn ${dialogueTurnCount}: "${latestCoachMsg.slice(0, 75)}..." Generating answer...`, "info");
+        showStatus(`Answering AI Coach (Turn ${dialogueTurnCount})...`);
 
         const prompt = `You are a knowledgeable university student participating in an interactive Coursera learning dialogue with an AI coach.
-Answer the following scenario or question thoughtfully, accurately, and naturally.
+Answer the coach's latest question or scenario thoughtfully, accurately, and naturally based on the conversation history.
+
+CONVERSATION HISTORY:
+${dialogueContext}
+
+LATEST QUESTION / PROMPT FROM COACH:
+${latestCoachMsg}
 
 CRITICAL INSTRUCTIONS FOR A HUMANIZED STUDENT RESPONSE:
 1. Write like an actual smart human college student typing an answer.
 2. DO NOT use generic AI filler phrases (never say "Certainly!", "As an AI language model...", "Here is the solution:", "In summary", etc.).
-3. Directly answer the question with technical depth, reasoning, and practical steps.
+3. Directly answer the coach's latest question with technical depth, reasoning, and practical steps.
 4. Keep the response to 1-2 well-structured paragraphs (about 3-6 sentences), concise yet thorough.
-5. Do not use markdown headers, bullet lists, or bold asterisks. Use plain, conversational, academic text.
-
-QUESTION / SCENARIO FROM COURSERA:
-${questionText}`;
+5. Do not use markdown headers, bullet lists, or bold asterisks. Use plain, conversational, academic text.`;
 
         chrome.runtime.sendMessage({
             type: 'ASK_AI',
@@ -1371,7 +1433,6 @@ ${questionText}`;
             try {
                 if (response && response.success && response.text) {
                     let answer = response.text.trim();
-                    // Clean any markdown formatting (remove asterisks, markdown headers) to look natural
                     answer = answer.replace(/\*\*(.*?)\*\*/g, '$1')
                                    .replace(/\*(.*?)\*/g, '$1')
                                    .replace(/^#+\s+/gm, '')
@@ -1380,27 +1441,29 @@ ${questionText}`;
 
                     addLog(`Generated humanized response (${answer.length} chars). Typing into chat...`, "info");
                     
-                    // Human-like pause before typing (1.5 - 2.5 seconds)
-                    await new Promise(r => setTimeout(r, 1800));
+                    // Human-like pause before typing (1.2 - 2.0 seconds)
+                    await new Promise(r => setTimeout(r, 1500));
 
                     const inputEl = findChatInputField();
                     if (inputEl) {
                         setReactInputValue(inputEl, answer);
-                        await new Promise(r => setTimeout(r, 800));
+                        await new Promise(r => setTimeout(r, 700));
 
                         const sendBtn = findChatSendButton(inputEl);
-                        if (sendBtn) {
+                        if (sendBtn && !sendBtn.disabled && sendBtn.getAttribute('aria-disabled') !== 'true') {
                             triggerClick(sendBtn);
-                            addLog("Sent humanized response to Coursera AI!", "success");
+                            addLog(`Sent humanized response to Coursera AI (Turn ${dialogueTurnCount})!`, "success");
                             showStatus("Response sent! Waiting for coach's reply...");
-                            lastAnsweredDialogueQuestion = questionText;
+                            lastAnsweredDialogueQuestion = normalizedQuestion;
                             lastDialogueMessageSentTime = Date.now();
+                            dialogueTurnCount++;
                         } else {
                             inputEl.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
                             inputEl.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
-                            addLog("Dispatched Enter to send response.", "info");
-                            lastAnsweredDialogueQuestion = questionText;
+                            addLog(`Dispatched Enter to send response (Turn ${dialogueTurnCount}).`, "info");
+                            lastAnsweredDialogueQuestion = normalizedQuestion;
                             lastDialogueMessageSentTime = Date.now();
+                            dialogueTurnCount++;
                         }
                     }
                 } else {
@@ -1415,8 +1478,11 @@ ${questionText}`;
     }
 
     function getQuizInputs() {
+        // STRICT GUARD: If currently on an AI coach / dialogue item, never treat chat as a quiz!
+        if (isDialogueOrCoachItem()) return [];
+
         return Array.from(
-            document.querySelectorAll('input[type="radio"], input[type="checkbox"], textarea, input[type="text"]')
+            document.querySelectorAll('input[type="radio"], input[type="checkbox"], textarea, input:not([type="hidden"]):not([type="radio"]):not([type="checkbox"]):not([type="submit"]):not([type="button"]):not([type="file"])')
         ).filter(el => {
             if (el.offsetWidth === 0 && el.offsetHeight === 0) {
                 const parent = el.closest('label') || el.parentElement;
@@ -1424,13 +1490,13 @@ ${questionText}`;
             }
             if (el.disabled || el.readOnly || el.type === 'hidden') return false;
 
-            // Strictly ignore inputs inside sidebar, navigation, headers, footers, goal trackers, course outlines
+            // Strictly ignore inputs inside sidebar, navigation, headers, footers, goal trackers, course outlines, chat / coach
             if (el.closest(
                 'aside, nav, header, footer, [role="navigation"], [role="search"], ' +
                 '.rc-CourseNavigation, .rc-NavigationDrawer, [class*="sidebar" i], [class*="drawer" i], ' +
                 '[class*="goal" i], [data-testid*="goal" i], [aria-label*="goal" i], ' +
                 '[class*="item-list" i], [class*="outline" i], [data-testid*="sidebar" i], [data-testid*="navigation" i], ' +
-                '.rc-Transcript, .rc-Notes, #coursera-ai-status'
+                '.rc-Transcript, .rc-Notes, #coursera-ai-status, [data-testid="coach-conversation"], [class*="dialogue" i], [class*="conversation" i], [class*="composer" i]'
             )) {
                 return false;
             }
@@ -1530,9 +1596,9 @@ ${questionText}`;
                     k.replaceWith(document.createTextNode(' ' + tex.trim() + ' '));
                 }
             });
-            // Remove options, radios, checkboxes, buttons, svgs
+            // Remove options, radios, checkboxes, buttons, text inputs, textareas, svgs
             clone.querySelectorAll(
-                '.rc-Option, label, [class*="Option"], [role="radiogroup"], [role="group"], [role="radio"], [role="checkbox"], button, input, svg'
+                '.rc-Option, label, [class*="Option"], [role="radiogroup"], [role="group"], [role="radio"], [role="checkbox"], button, input, textarea, svg'
             ).forEach(e => e.remove());
 
             let str = (clone.innerText || clone.textContent || '').trim();
@@ -1792,9 +1858,20 @@ ${questionText}`;
 
     function fillTextInput(input, text) {
         if (!input) return;
-        input.value = text;
+        try { input.focus(); } catch (e) {}
+        const proto = input.tagName === 'TEXTAREA' 
+            ? window.HTMLTextAreaElement.prototype 
+            : window.HTMLInputElement.prototype;
+        const desc = Object.getOwnPropertyDescriptor(proto, 'value');
+        if (desc && desc.set) {
+            desc.set.call(input, text);
+        } else {
+            input.value = text;
+        }
         input.dispatchEvent(new Event('input', { bubbles: true }));
         input.dispatchEvent(new Event('change', { bubbles: true }));
+        try { input.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Enter' })); } catch (e) {}
+        try { input.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: 'Enter' })); } catch (e) {}
     }
 
     function acceptHonorCode() {
@@ -1857,8 +1934,14 @@ ${questionText}`;
             if (groups.size === 0) return false;
 
             for (const [key, inputs] of groups.entries()) {
-                const hasChecked = inputs.some(inp => inp.checked);
-                if (!hasChecked) return false;
+                const hasAnswer = inputs.some(inp => {
+                    if (inp.type === 'radio' || inp.type === 'checkbox') {
+                        return inp.checked;
+                    }
+                    // Free text input or textarea
+                    return inp.value && inp.value.trim().length > 0;
+                });
+                if (!hasAnswer) return false;
             }
             return true;
         } catch (e) {
@@ -1895,6 +1978,7 @@ ${questionText}`;
 
             const questions = [];
             rawInputs.forEach(input => {
+                const isText = input.tagName === 'TEXTAREA' || (input.tagName === 'INPUT' && input.type !== 'radio' && input.type !== 'checkbox');
                 const groupEl = input.closest('[role="radiogroup"], [role="group"]');
                 const groupKey = (input.name && input.name.trim()) 
                     ? `name:${input.name.trim()}` 
@@ -1904,7 +1988,8 @@ ${questionText}`;
                 if (!q) {
                     const container = findQuestionContainer(input);
                     q = {
-                        type: input.type,
+                        type: isText ? 'text' : input.type,
+                        isText: isText,
                         groupKey,
                         container,
                         context: extractQuestionContext(container, groupEl),
@@ -1920,7 +2005,11 @@ ${questionText}`;
             });
 
             questions.forEach(q => {
-                q.options = q.inputs.map((inp, idx) => getOptionInfo(inp, idx));
+                if (q.isText) {
+                    q.options = [{ input: q.inputs[0], text: 'Free-text answer input field', rawText: '', index: 0 }];
+                } else {
+                    q.options = q.inputs.map((inp, idx) => getOptionInfo(inp, idx));
+                }
             });
 
             if (questions.length === 0) {
@@ -1935,21 +2024,33 @@ ${questionText}`;
             prompt += `Solve the following university quiz question(s) from Coursera with absolute accuracy.\n\n`;
             questions.forEach((q, idx) => {
                 prompt += `=== QUESTION ${idx} ===\n`;
-                prompt += `Type: ${q.type === 'checkbox' ? 'multiple_choice (select all that apply)' : 'single_choice (select exactly one)'}\n`;
-                prompt += `Prompt: ${q.context || 'Choose the correct answer based on standard academic definitions'}\n`;
-                prompt += `Options:\n`;
-                q.options.forEach((opt, oIdx) => {
-                    prompt += `[Index ${oIdx}]: ${opt.text}\n`;
-                });
+                if (q.type === 'text' || q.isText) {
+                    prompt += `Type: text_input (type the exact word, number, or short phrase required)\n`;
+                    prompt += `Prompt: ${q.context || 'Enter the correct answer'}\n`;
+                    prompt += `Options: None (Free-text input field)\n`;
+                } else if (q.type === 'checkbox') {
+                    prompt += `Type: multiple_choice (select all that apply)\n`;
+                    prompt += `Prompt: ${q.context || 'Choose the correct answers'}\n`;
+                    prompt += `Options:\n`;
+                    q.options.forEach((opt, oIdx) => {
+                        prompt += `[Index ${oIdx}]: ${opt.text}\n`;
+                    });
+                } else {
+                    prompt += `Type: single_choice (select exactly one)\n`;
+                    prompt += `Prompt: ${q.context || 'Choose the correct answer based on standard academic definitions'}\n`;
+                    prompt += `Options:\n`;
+                    q.options.forEach((opt, oIdx) => {
+                        prompt += `[Index ${oIdx}]: ${opt.text}\n`;
+                    });
+                }
                 prompt += `\n`;
             });
 
             prompt += `CRITICAL INSTRUCTIONS:
-1. In 'rationale', write concise step-by-step reasoning or mathematical calculation proving why the chosen option is correct.
-2. In 'answerTexts', provide the EXACT verbatim string(s) from the provided Options list matching your answer.
-3. In 'answerIndices', provide the matching 0-based index(es) from the provided Options list.
-4. For single_choice (radio): select EXACTLY ONE answer.
-5. For multiple_choice (checkbox): select ALL correct options.
+1. In 'rationale', write concise step-by-step reasoning or mathematical calculation proving why the chosen answer is correct.
+2. For single_choice (radio): select EXACTLY ONE answer from the provided Options list. Provide exact string in 'answerTexts' and 0-based index in 'answerIndices'.
+3. For multiple_choice (checkbox): select ALL correct options from the provided Options list.
+4. For text_input: provide the exact single verbatim word, number, or short phrase in 'answerTexts' (e.g. ["alu"]). If the prompt specifies formatting (such as "in all lowercase" or a specific unit), follow it strictly. Set answerIndices to [0].
 
 Output ONLY a valid JSON array of objects without Markdown formatting:
 [
@@ -1957,7 +2058,7 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
     "id": 0,
     "rationale": "reasoning",
     "answerIndices": [0],
-    "answerTexts": ["exact verbatim option string"]
+    "answerTexts": ["exact verbatim option string or exact text answer"]
   }
 ]`;
 
@@ -2004,7 +2105,31 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
 
                             showStatus(`Marking Question ${i + 1} of ${questions.length}...`);
 
-                            if (q.type === 'radio') {
+                            if (q.type === 'text' || q.isText) {
+                                let ansText = '';
+                                if (ans.answerTexts && ans.answerTexts.length > 0) {
+                                    ansText = String(ans.answerTexts[0]).trim();
+                                } else if (typeof ans.answer === 'string') {
+                                    ansText = ans.answer.trim();
+                                } else if (typeof ans.text === 'string') {
+                                    ansText = ans.text.trim();
+                                }
+                                ansText = ansText.replace(/^["']|["']$/g, '');
+                                if (q.context && q.context.toLowerCase().includes('all lowercase')) {
+                                    ansText = ansText.toLowerCase();
+                                }
+                                const textInputEl = q.inputs[0];
+                                if (textInputEl && ansText) {
+                                    fillTextInput(textInputEl, ansText);
+                                    q.markedIndex = 0;
+                                    q.markedText = ansText;
+                                    q.matchReason = 'Free-text input filled';
+                                    markedQuestionsCount++;
+                                    addLog(`Q${i + 1}: Entered "${ansText}" into text field`, "info");
+                                } else {
+                                    addLog(`Q${i + 1}: Could not determine text for input field.`, "warn");
+                                }
+                            } else if (q.type === 'radio') {
                                 const resolution = resolveSingleChoiceOption(q.options, ans);
                                 if (resolution.index >= 0 && q.options[resolution.index]) {
                                     const chosen = q.options[resolution.index];
@@ -2299,7 +2424,42 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
                 addLog(`Arrived at: ${document.title || 'Course Item'}`, 'info');
             }
 
-            // 2. SUBMISSION GUARD: If submitting or reviewing a quiz on the CURRENT page, strictly pause!
+            // 2. GLOBAL STUCK WATCHDOG (AUTO-REFRESH AFTER 3 MIN, AUTO-SKIP AFTER 2 MIN)
+            const timeOnPage = Date.now() - pageArrivalTime;
+
+            // A. 3-Minute Auto-Refresh: If website is stuck anywhere for >3 minutes, auto-refresh once to unfreeze
+            if (timeOnPage > 180000 && (Date.now() - lastNavTime > 5000)) {
+                const refreshKey = 'coursera_stuck_refreshed_' + window.location.pathname;
+                if (sessionStorage.getItem(refreshKey) !== 'true') {
+                    sessionStorage.setItem(refreshKey, 'true');
+                    addLog("AutoPilot Watchdog: Page stuck for >3 minutes. Auto-refreshing once to recover...", "warn");
+                    showStatus("Page stuck for >3 min! Auto-refreshing once...");
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 500);
+                    return;
+                }
+            }
+
+            // B. 2-Minute Skip Watchdog: If stuck on same page for >2 minutes (and video is not actively playing forward), skip to next item!
+            const video = document.querySelector('video');
+            const isVideoActivelyPlaying = video && !video.paused && !video.ended && (video.readyState >= 3);
+            if (timeOnPage > 120000 && !isVideoActivelyPlaying && (Date.now() - lastNavTime > 4000)) {
+                addLog("AutoPilot Watchdog: Stuck on same page for >2 minutes. Auto-skipping to next item...", "warn");
+                showStatus("Stuck for >2 min! Auto-skipping to next item...");
+                lastNavTime = Date.now();
+                const nextBtn = findNextItemButton();
+                if (nextBtn) {
+                    triggerClick(nextBtn);
+                } else {
+                    const nextTarget = findNextPendingSidebarItem() || findNextTargetSidebarItem(state.focusMode);
+                    if (nextTarget) triggerClick(nextTarget);
+                }
+                pageArrivalTime = Date.now();
+                return;
+            }
+
+            // 3. SUBMISSION GUARD: If submitting or reviewing a quiz on the CURRENT page, strictly pause!
             if (isSubmitting || quizSession.status === 'SUBMITTING' || quizSession.status === 'REVIEWING') {
                 if (quizSession.url === window.location.href) {
                     return;
@@ -2310,14 +2470,13 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
             }
 
             const currentItemType = getItemTypeFromUrl(window.location.href);
-            const video = document.querySelector('video');
             const isQuizUrl = isQuizOrAssignmentUrl();
             const quizInputs = getQuizInputs();
             const hasQuestionsOnScreen = quizInputs.length > 0 || !!document.querySelector('[data-testid="question-view"], .rc-QuizQuestion, .rc-FormPartsQuestion, div[data-testid="quiz-question"]');
             const onAttempt = hasQuestionsOnScreen || isQuizAttemptPage();
             const onFeedback = isQuizFeedbackPage();
 
-            // 3. COURSE FOCUS MODES (ITEM FILTERING & FAST SKIPPING)
+            // 4. COURSE FOCUS MODES (ITEM FILTERING & FAST SKIPPING)
             // A. Quizzes-only mode: Skip videos and readings immediately
             if (state.focusMode === 'quizzes_only' && (currentItemType === 'video' || currentItemType === 'reading' || video)) {
                 if (Date.now() - pageArrivalTime > 1200 && (Date.now() - lastNavTime > 2500)) {
@@ -2389,17 +2548,19 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
 
             let shouldGoNext = false;
 
-            // 4. VIDEO ITEM HANDLING
+            // 5. VIDEO ITEM HANDLING
             if (video) {
                 injectSpeedBadge(video);
 
-                // Directly enforce playback speed on video
+                // Directly enforce playback speed on video only when metadata is loaded
                 try {
-                    if (video.playbackRate !== state.playbackSpeed) {
-                        video.playbackRate = state.playbackSpeed;
-                    }
-                    if (video.defaultPlaybackRate !== state.playbackSpeed) {
-                        video.defaultPlaybackRate = state.playbackSpeed;
+                    if (video.readyState >= 1) {
+                        if (video.playbackRate !== state.playbackSpeed) {
+                            video.playbackRate = state.playbackSpeed;
+                        }
+                        if (video.defaultPlaybackRate !== state.playbackSpeed) {
+                            video.defaultPlaybackRate = state.playbackSpeed;
+                        }
                     }
                 } catch (e) {}
 
@@ -2432,7 +2593,7 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
                     dismissBtn.click();
                 }
 
-                // D. Video Completion Check with Strict Completion Guard (Verify Green Checkmark & Replay-Once)
+                // D. Video Completion Check with Strict Green Tick Confirmation & Reattempt Once
                 const videoEnded = video.ended || (video.duration > 0 && video.currentTime >= video.duration - 1.5);
                 const countdownVisible = !!document.querySelector('.rc-PostVideoCountdown, [data-testid="video-next-button"]');
 
@@ -2446,25 +2607,25 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
                             // Green checkmark confirmed in sidebar!
                             shouldGoNext = true;
                         } else if (isCompleted === false) {
-                            // Sidebar explicitly shows not completed / white circle
+                            // Sidebar explicitly shows not completed / white circle / failed
                             const waitElapsed = Date.now() - videoEndedFirstSeenTime;
                             if (waitElapsed < 3500) {
-                                showStatus(`Video ended. Waiting for Coursera completion sync (${Math.ceil((3500 - waitElapsed) / 1000)}s)...`);
-                                return; // Do not advance yet! Hold navigation until sync or replay
+                                showStatus(`Video ended. Waiting for Coursera green tick sync (${Math.ceil((3500 - waitElapsed) / 1000)}s)...`);
+                                return; // Hold navigation until sync or replay
                             }
-                            // 3.5s elapsed and still white circle in sidebar! Check if already replayed:
+                            // 3.5s elapsed and still not marked green in sidebar! Check reattempt count:
                             const curPath = window.location.pathname.toLowerCase();
-                            const replayCount = videoReplayMap[curPath] || 0;
-                            if (replayCount === 0) {
-                                videoReplayMap[curPath] = 1;
+                            const reattemptCount = itemReattemptMap[curPath] || 0;
+                            if (reattemptCount === 0) {
+                                itemReattemptMap[curPath] = 1;
                                 videoEndedFirstSeenTime = 0;
                                 video.currentTime = 0;
                                 video.play().catch(() => {});
-                                addLog("Strict Completion Guard: Video completed but not marked green in sidebar! Replaying video once to guarantee completion...", "warn");
-                                showStatus("Item not marked green! Replaying video once...");
+                                addLog("Green Tick Confirmation: Video ended but not marked green! Reattempting once...", "warn");
+                                showStatus("Item not marked green! Reattempting once...");
                                 return;
                             } else {
-                                addLog("Strict Completion Guard: Replayed once. Advancing to avoid infinite hang.", "info");
+                                addLog("Green Tick Confirmation: Reattempted once. Proceeding to next item to avoid loop.", "info");
                                 shouldGoNext = true;
                             }
                         } else {
@@ -2476,7 +2637,12 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
                     }
                 }
             } 
-            // 4. QUIZ / ASSIGNMENT / EXAM HANDLING (STRICT ISOLATION: NEVER FALL INTO READING AUTO-NEXT!)
+            // 6. COURSERA AI COACH / DIALOGUE HANDLING (EVALUATED BEFORE QUIZZES TO PREVENT HIJACK!)
+            else if (isDialogueOrCoachItem()) {
+                handleDialogueItem();
+                return;
+            }
+            // 7. QUIZ / ASSIGNMENT / EXAM HANDLING (STRICT ISOLATION: NEVER FALL INTO READING AUTO-NEXT!)
             else if (isQuizUrl || onAttempt || onFeedback || hasQuizResultsMounted()) {
 
                 // A. RESULTS ARE MOUNTED (PIC 2): Banner shows "Your grade: XX%"!
@@ -2569,7 +2735,6 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
                 }
 
                 // F. WAITING FOR QUESTIONS TO LOAD (WAIT UP TO 20 SECONDS BEFORE SKIPPING!)
-                const timeOnPage = Date.now() - pageArrivalTime;
                 const waitSec = Math.floor(timeOnPage / 1000);
                 if (timeOnPage < 20000) {
                     showStatus(`Waiting for test questions to load (${waitSec}s / 20s)...`);
@@ -2586,11 +2751,6 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
                         triggerClick(nextBtn);
                     }
                 }
-                return;
-            }
-            // 5. COURSERA AI COACH / DIALOGUE HANDLING (Dedicated handler for /coach/ and Dialogue items)
-            else if (isDialogueOrCoachItem()) {
-                handleDialogueItem();
                 return;
             }
             // 5. READING / SUPPLEMENT / LECTURE NOTES
@@ -2662,6 +2822,15 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
                         const isCompleted = isCurrentItemCompletedInSidebar();
                         if (isCompleted === false && (Date.now() - pageArrivalTime < 4000)) {
                             showStatus("Reading marked, waiting for sidebar green checkmark sync...");
+                            return;
+                        }
+                        const curPath = window.location.pathname.toLowerCase();
+                        const reattempts = itemReattemptMap[curPath] || 0;
+                        if (isCompleted === false && reattempts === 0) {
+                            itemReattemptMap[curPath] = 1;
+                            addLog("Strict Green Tick Guard: Reading marked but not green in sidebar. Reattempting once...", "warn");
+                            hasMarkedCurrentReading = false;
+                            pageArrivalTime = Date.now();
                             return;
                         }
                     }
