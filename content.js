@@ -76,10 +76,20 @@
     let lastStartClickTime = 0;
     let lastStartClickUrl = '';
     let isGeneratingDialogueResponse = false;
+    let dialogueResponseStartTime = 0;
     let lastAnsweredDialogueQuestion = '';
+    let lastSentDialogueAnswer = '';
     let answeredStudentTurns = 0;
     let lastStartDialogueClickTime = 0;
     let lastDialogueMessageSentTime = 0;
+
+    function isExtensionValid() {
+        try {
+            return typeof chrome !== 'undefined' && !!chrome.runtime && !!chrome.runtime.id;
+        } catch (e) {
+            return false;
+        }
+    }
 
     /* ========================================================================
        ACTIVITY & ERROR LOGGING (SAVED FOR POPUP LOG MENU)
@@ -97,12 +107,19 @@
             'color: inherit;'
         );
 
-        chrome.storage.local.get(['activityLogs'], (data) => {
-            const logs = Array.isArray(data.activityLogs) ? data.activityLogs : [];
-            logs.unshift(logEntry);
-            if (logs.length > 60) logs.pop(); // Keep last 60 entries
-            chrome.storage.local.set({ activityLogs: logs });
-        });
+        if (isExtensionValid()) {
+            try {
+                chrome.storage.local.get(['activityLogs'], (data) => {
+                    if (chrome.runtime?.lastError || !isExtensionValid()) return;
+                    const logs = Array.isArray(data?.activityLogs) ? data.activityLogs : [];
+                    logs.unshift(logEntry);
+                    if (logs.length > 60) logs.pop(); // Keep last 60 entries
+                    try {
+                        chrome.storage.local.set({ activityLogs: logs });
+                    } catch (err) {}
+                });
+            } catch (e) {}
+        }
 
         // Also update floating badge
         showStatus(message);
@@ -1214,7 +1231,7 @@
     }
 
     /* ========================================================================
-       AI DIALOGUE ANSWER SANITIZER (STRIP JSON, ARRAYS, MARKDOWN DECORATIONS)
+       AI DIALOGUE ANSWER SANITIZER (STRIP JSON, ARRAYS, LATEX, MARKDOWN)
        ======================================================================== */
     function cleanDialogueAnswer(rawText) {
         if (!rawText || typeof rawText !== 'string') return '';
@@ -1235,7 +1252,6 @@
                     text = parsed.response || parsed.answer || parsed.text || parsed.content || parsed.message || Object.values(parsed)[0] || text;
                 }
             } catch (e) {
-                // Regex fallback for unescaped or malformed JSON
                 const match = text.match(/"(?:response|answer|text|content|message)"\s*:\s*"((?:[^"\\]|\\.)*)"/i);
                 if (match && match[1]) {
                     text = match[1].replace(/\\n/g, '\n').replace(/\\"/g, '"').replace(/\\\\/g, '\\');
@@ -1245,76 +1261,107 @@
             }
         }
 
-        // 2. Strip AI framing intros (e.g. "Here is a response you can send to the AI coach:")
-        text = text.replace(/^(?:Here is a response(?: you can send)?(?: to the (?:AI )?coach)?|As a student,|Here is my answer:?|Response:?|Student response:?)\s*[:\-\n]+/i, '');
+        // 2. Strip AI conversational prefixes & meta-commentary (loop to catch stacked prefixes)
+        let prevText = '';
+        while (prevText !== text) {
+            prevText = text;
+            text = text.replace(/^(?:Here (?:is|are) (?:the|a) [^\n:]*(?:coach|response|answer|reply|solution|simplification)?:?|As a student,?|Student (?:response|answer)?:?|Response:?|Answer:?|Certainly!?|Sure!?)\s*[:\-\n]*/i, '').trim();
+        }
 
-        // 3. Strip markdown headers (# Title, ## Section)
+        // 3. Clean LaTeX mathematical expressions so formulas appear as clean plain text
+        text = text.replace(/\\cdot/g, '·');
+        text = text.replace(/\\times/g, '*');
+        text = text.replace(/\\le(?:q)?\b/g, '<=');
+        text = text.replace(/\\ge(?:q)?\b/g, '>=');
+        text = text.replace(/\\ne(?:q)?\b/g, '!=');
+        text = text.replace(/\\frac\{([^{}]+)\}\{([^{}]+)\}/g, '$1/$2');
+        text = text.replace(/\\sqrt\{([^{}]+)\}/g, 'sqrt($1)');
+        text = text.replace(/\\mathbf\{([^{}]+)\}/g, '$1');
+        text = text.replace(/\\text\{([^{}]+)\}/g, '$1');
+        text = text.replace(/\\mathrm\{([^{}]+)\}/g, '$1');
+        // Strip LaTeX math delimiters: $$...$$, $...$, \(...\), \[...\]
+        text = text.replace(/\$\$([^\$]+)\$\$/g, '$1');
+        text = text.replace(/\$([^\$]+)\$/g, '$1');
+        text = text.replace(/\\\((.*?)\\\)/g, '$1');
+        text = text.replace(/\\\[(.*?)\\\]/g, '$1');
+
+        // 4. Strip markdown headers (# Title, ## Section)
         text = text.replace(/^#{1,6}\s+/gm, '');
 
-        // 4. Strip markdown bold and italics (**bold** -> bold, *italic* -> italic)
+        // 5. Strip markdown bold and italics (**bold** -> bold, *italic* -> italic)
         text = text.replace(/\*\*(.*?)\*\*/g, '$1');
         text = text.replace(/\*(.*?)\*/g, '$1');
         text = text.replace(/__(.*?)__/g, '$1');
         text = text.replace(/_(.*?)_/g, '$1');
 
-        // 5. Strip bullet dashes/asterisks (keep natural flowing academic text)
+        // 6. Strip bullet dashes/asterisks (keep natural flowing academic text)
         text = text.replace(/^[\*\-•]\s+/gm, '');
 
-        // 6. Strip markdown table lines (| Col 1 | Col 2 | and |---|---|)
+        // 7. Strip markdown table lines (| Col 1 | Col 2 | and |---|---|)
         text = text.split('\n').filter(line => !line.trim().startsWith('|')).join('\n');
 
-        // 7. Strip code block fences but keep equations/formulas inside
+        // 8. Strip code block fences but keep content inside
         text = text.replace(/```[a-zA-Z]*\n?/g, '').replace(/```/g, '');
 
-        // 8. Clean inline backticks around numbers/variables (`11111111` -> 11111111)
+        // 9. Clean inline backticks around numbers/variables (`11111111` -> 11111111)
         text = text.replace(/`([^`]+)`/g, '$1');
 
-        // 9. Remove any remaining stray outer brackets [ ... ] or braces { ... }
+        // 10. Remove any remaining stray outer brackets [ ... ] or braces { ... }
         text = text.replace(/^\[\s*/, '').replace(/\s*\]$/, '');
         text = text.replace(/^\{+\s*/, '').replace(/\s*\}+$/, '');
 
-        // 10. Normalize multiple blank lines into standard paragraph breaks
+        // 11. Normalize multiple blank lines into standard paragraph breaks
         text = text.replace(/\n{3,}/g, '\n\n').trim();
 
         return text;
     }
 
-    function isDialogueCompletedPage() {
-        const text = (document.body ? document.body.textContent || '' : '').toLowerCase();
-        
-        // 1. Explicit summary and completion keywords
-        const hasSummaryKeywords = (
-            text.includes('good job, you have completed') ||
-            text.includes('you have completed all the topics') ||
-            text.includes('up next - view your feedback') ||
-            text.includes('your strengths') || 
-            text.includes('areas for improvement') || 
-            text.includes("during today's session") || 
-            text.includes("session summary") || 
-            text.includes("dialogue completed") || 
-            text.includes("great job on completing the dialogue") || 
-            text.includes("you've completed this dialogue")
-        ) && (
-            text.includes('dialogue is powered by ai') || 
-            text.includes('tell us what you think') || 
-            text.includes('strengths:') || 
-            text.includes('summary') || 
-            text.includes('performance') ||
-            text.includes('feedback')
-        );
-        if (hasSummaryKeywords) return true;
+    function findDialogueCompletedTickOrButton() {
+        // 1. Button or element with "Completed" text and checkmark (as seen in Screenshot 5)
+        const candidates = Array.from(document.querySelectorAll('button, [role="button"], div, span')).filter(el => {
+            if (!el || el.offsetWidth === 0 || el.offsetHeight === 0) return false;
+            // Exclude course sidebar navigation
+            if (el.closest('aside, nav, [role="navigation"], .rc-CourseNavigation, [class*="sidebar" i], [class*="drawer" i]')) return false;
+            const text = (el.innerText || el.textContent || '').trim();
+            return /^✓?\s*completed$/i.test(text) || text === 'Completed' || text === '✓ Completed';
+        });
+        if (candidates.length > 0) return candidates[0];
 
-        // 2. Chat input disappeared on a dialogue URL and Next item button or summary card is visible
+        // 2. Active item in course navigation sidebar has green tick
+        const sidebarActiveCompleted = document.querySelector(
+            '[aria-current="true"] svg[aria-label*="Completed" i], ' +
+            '[aria-current="true"] [data-testid*="check" i], ' +
+            '[aria-current="true"] [data-testid*="completed" i], ' +
+            '.rc-CourseItem.active [data-testid*="check" i], ' +
+            '[aria-current="page"] [data-testid*="check" i]'
+        );
+        if (sidebarActiveCompleted) return sidebarActiveCompleted;
+
+        return null;
+    }
+
+    function isDialogueCompletedPage() {
+        // STRICT GUARD: If chat input is still present and active, the dialogue is in progress!
         const chatInput = findChatInputField();
-        if (!chatInput) {
-            const hasEndMarkers = text.includes('session summary') || 
-                                  text.includes('strengths') || 
-                                  text.includes('completed') || 
-                                  text.includes('congratulations') || 
-                                  text.includes('feedback') ||
-                                  text.includes('dialogue');
-            const hasNextBtn = !!findNextItemButton();
-            if (hasEndMarkers && hasNextBtn) return true;
+        if (chatInput && isElementVisible(chatInput) && !chatInput.disabled) {
+            return false;
+        }
+
+        const text = (document.body ? document.body.textContent || '' : '').toLowerCase();
+
+        // Markers of completed dialogue from Screenshots 4 & 5
+        const hasDialogueEndedText = text.includes('the dialogue has ended') ||
+                                     text.includes('start a new chat to clear your chat history') ||
+                                     (text.includes("you've completed") && text.includes("topic")) ||
+                                     text.includes('good job, you have completed') ||
+                                     text.includes('you have completed all the topics') ||
+                                     text.includes('up next - view your feedback') ||
+                                     (text.includes('your strengths') && (text.includes('areas for improvement') || text.includes("during today's session")));
+
+        const completedTick = findDialogueCompletedTickOrButton();
+
+        if (hasDialogueEndedText || completedTick) {
+            return true;
         }
 
         return false;
@@ -1568,26 +1615,28 @@
         } catch (e) {}
     }
 
-    async function handleDialogueItem() {
-        // Stage 3: Summary / End screen / Completion
+async function handleDialogueItem() {
+        // Stage 3: Summary / End screen / Completion (Screenshots 4 & 5)
         if (isDialogueCompletedPage()) {
-            if (state.autoNavigate && (Date.now() - lastNavTime > 2500)) {
+            if (state.autoNavigate && (Date.now() - lastNavTime > 2000)) {
                 const nextBtn = findNextItemButton();
                 if (nextBtn) {
                     lastNavTime = Date.now();
-                    addLog("Dialogue completed! Performance summary recorded. Advancing to next item...", "success");
-                    showStatus("Dialogue complete! Advancing to next item in 2s...");
+                    addLog("Dialogue completed (green tick / end screen verified)! Advancing to next item...", "success");
+                    showStatus("Dialogue complete! Moving to next course item...");
                     triggerClick(nextBtn);
-                } else {
-                    const nextTarget = findNextPendingSidebarItem() || findNextTargetSidebarItem(state.focusMode);
-                    if (nextTarget) {
-                        lastNavTime = Date.now();
-                        addLog("Dialogue completed! Advancing to next sidebar item...", "success");
-                        showStatus("Advancing to next item in 2s...");
-                        triggerClick(nextTarget);
-                    }
+                    return;
+                }
+                const nextSidebar = findNextPendingSidebarItem() || findNextTargetSidebarItem(state.focusMode);
+                if (nextSidebar) {
+                    lastNavTime = Date.now();
+                    addLog("Dialogue completed! Advancing to next sidebar item...", "success");
+                    showStatus("Advancing to next item in sidebar...");
+                    triggerClick(nextSidebar);
+                    return;
                 }
             }
+            showStatus("Dialogue complete! Waiting to navigate...");
             return;
         }
 
@@ -1624,17 +1673,9 @@
         // Stage 2: Active Dialogue Chat
         const chatInput = findChatInputField();
         if (!chatInput) {
-            const nextBtn = findNextItemButton();
-            if (nextBtn && isDialogueCompletedPage()) {
-                triggerClick(nextBtn);
-                return;
-            }
             showStatus("AI Dialogue in progress...");
             return;
         }
-
-        // Inspect Coursera AI Coach conversation timeline
-        const conv = getDialogueConversationState();
 
         // Check if coach is currently streaming / typing
         const isCoachTyping = !!document.querySelector('[data-testid*="typing" i], [class*="typing" i], [aria-label*="typing" i], .cds-loadingDots');
@@ -1643,41 +1684,77 @@
             return;
         }
 
-        // If coach has not yet replied to our previous answer, wait
-        if (!conv.isWaitingForStudent) {
-            showStatus(`Response sent (Turn ${answeredStudentTurns})! Waiting for Coursera AI coach reply...`);
-            return;
-        }
-
-        // Turn Guard: If this turn was already answered, wait for coach's next reply
-        const currentTurn = conv.currentTurnNumber;
-        if (answeredStudentTurns >= currentTurn) {
-            showStatus(`Response sent (Turn ${currentTurn})! Waiting for coach's reply...`);
-            return;
-        }
-
+        // Watchdog for AI response generation (clear lock if stuck > 25s)
         if (isGeneratingDialogueResponse) {
-            showStatus(`Thinking and drafting response for AI coach (Turn ${currentTurn})...`);
+            if (Date.now() - dialogueResponseStartTime > 25000) {
+                addLog("AI response generation timed out after 25s. Resetting lock...", "warn");
+                isGeneratingDialogueResponse = false;
+            } else {
+                showStatus(`Thinking and drafting response for AI coach (Turn ${sentDialogueAnswers.length + 1})...`);
+                return;
+            }
+        }
+
+        // Required 5s interval after sending each message
+        const elapsedSinceLastSend = Date.now() - lastDialogueMessageSentTime;
+        if (lastDialogueMessageSentTime > 0 && elapsedSinceLastSend < 5000) {
+            const waitSec = Math.ceil((5000 - elapsedSinceLastSend) / 1000);
+            showStatus(`Response sent! Waiting ${waitSec}s before checking next turn...`);
             return;
         }
 
-        // Don't send too frequently (min 3.5s between messages)
-        if (Date.now() - lastDialogueMessageSentTime < 3500) {
+        // Take all text from website
+        const fullDialogueText = getCleanDialogueText();
+        if (!fullDialogueText || fullDialogueText.length < 15) {
+            showStatus("Waiting for AI coach message...");
             return;
         }
 
-        const latestCoachMsg = conv.latestCoachMessage;
-        if (!latestCoachMsg || latestCoachMsg.length < 10) {
-            showStatus("Waiting for AI coach prompt...");
+        // Check if coach has responded to our last sent message
+        let coachHasReplied = false;
+        if (sentDialogueAnswers.length === 0) {
+            // Turn 1: Ready to respond to initial prompt
+            coachHasReplied = true;
+        } else {
+            const lastAns = lastSentDialogueAnswer || sentDialogueAnswers[sentDialogueAnswers.length - 1];
+            const cleanAns = lastAns.replace(/\s+/g, ' ').trim();
+            const candidates = [
+                cleanAns.slice(0, 35),
+                cleanAns.slice(10, 45),
+                cleanAns.slice(-25),
+                cleanAns.slice(0, 20)
+            ].filter(s => s && s.length >= 8);
+
+            for (const c of candidates) {
+                const idx = fullDialogueText.lastIndexOf(c);
+                if (idx !== -1) {
+                    const after = fullDialogueText.slice(idx + c.length).trim();
+                    const endPart = cleanAns.slice(-15);
+                    const endIdx = after.indexOf(endPart);
+                    const remaining = (endIdx !== -1) ? after.slice(endIdx + endPart.length).trim() : after;
+                    if (remaining.length > 15) {
+                        coachHasReplied = true;
+                        break;
+                    }
+                }
+            }
+
+            // Secondary check: If 12 seconds have passed since last send and input is empty and coach not typing
+            if (!coachHasReplied && elapsedSinceLastSend > 12000 && !chatInput.disabled && chatInput.value === '') {
+                coachHasReplied = true;
+            }
+        }
+
+        if (!coachHasReplied) {
+            showStatus(`Response sent (Turn ${sentDialogueAnswers.length})! Waiting for AI coach reply...`);
             return;
         }
 
         // Check if coach is prompting for final session summary command
-        if (/Generate final session summary/i.test(latestCoachMsg)) {
+        if (/Generate final session summary/i.test(fullDialogueText.slice(-300))) {
             const summaryCmd = "Generate final session summary";
             if (lastAnsweredDialogueQuestion !== summaryCmd) {
                 lastAnsweredDialogueQuestion = summaryCmd;
-                answeredStudentTurns = currentTurn;
                 lastDialogueMessageSentTime = Date.now();
                 addLog("Coach requested session summary. Submitting 'Generate final session summary'...", "info");
                 showStatus("Submitting 'Generate final session summary' to coach...");
@@ -1695,7 +1772,7 @@
                 chatInput.focus();
                 chatInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
                 chatInput.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
-                chatInput.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+                chatInput.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
                 if (chatInput.form && typeof chatInput.form.requestSubmit === 'function') {
                     try { chatInput.form.requestSubmit(); } catch (e) {}
                 }
@@ -1709,84 +1786,93 @@
         }
 
         isGeneratingDialogueResponse = true;
-        const dialogueContext = conv.allContextText || `AI Coach: ${latestCoachMsg}`;
+        dialogueResponseStartTime = Date.now();
+        const currentTurn = sentDialogueAnswers.length + 1;
 
-        addLog(`AI Coach Turn ${currentTurn}: "${latestCoachMsg.slice(0, 75)}..." Generating student response...`, "info");
-        showStatus(`Answering AI Coach (Turn ${currentTurn})...`);
+        addLog(`AI Coach Turn ${currentTurn}: Extracting text from website and asking AI to generate answer...`, "info");
+        showStatus(`Thinking and drafting response for AI coach (Turn ${currentTurn})...`);
 
         const prompt = `You are a knowledgeable university student participating in an interactive Coursera learning dialogue with an AI coach.
-Answer the coach's latest question or scenario thoughtfully, accurately, and naturally based on the conversation history.
+Below is the full, current dialogue transcript taken directly from the website:
 
-CONVERSATION HISTORY:
-${dialogueContext}
+=== DIALOGUE TRANSCRIPT FROM WEBSITE ===
+${fullDialogueText}
+=========================================
 
-LATEST QUESTION / PROMPT FROM COACH:
-${latestCoachMsg}
+YOUR TASK:
+Read the conversation history above, identify the latest question, problem, or prompt asked by the AI coach at the very end, and provide the direct, correct student answer to reply next.
 
-CRITICAL RULES FOR YOUR RESPONSE (STRICT COMPLIANCE):
-1. Output ONLY the plain text of your answer as 1-2 concise, well-structured academic paragraphs (3-5 sentences).
-2. DO NOT output any JSON, brackets [], curly braces {}, or quotes wrapping your response.
-3. DO NOT include markdown headers (#, ##), bullet points (- or *), bold asterisks (**text**), or tables.
-4. DO NOT use AI conversational intros (NEVER say "Here is a response...", "Certainly!", "As a student...", "In summary").
-5. Include relevant technical terms, numbers, formulas, and equations directly in natural sentences if needed.`;
+CRITICAL INSTRUCTIONS (STRICT COMPLIANCE):
+1. Output ONLY your direct answer as 1-2 concise, clear academic paragraphs (2-4 sentences).
+2. DO NOT output JSON, brackets [], curly braces {}, or quotes wrapping your response.
+3. DO NOT include markdown headers (#, ##), bullets (- or *), bold asterisks (**text**), or tables.
+4. DO NOT use conversational intros or meta-commentary (NEVER say "Here is a response...", "Here is the step-by-step simplification you can send to the AI coach:", "As a student", "Sure!").
+5. DO NOT use LaTeX formatting or dollar signs (e.g., do not write $A + BC$, write A + BC; do not write \cdot, write · or *). Keep all formulas and equations in standard plain text.
+6. Provide ONLY the direct, helpful student answer answering the latest question.`;
 
         const courseSlug = getCourseSlugFromUrl();
-        chrome.runtime.sendMessage({
-            type: 'ASK_AI',
-            prompt: prompt,
-            courseSlug: courseSlug
-        }, async (response) => {
-            try {
-                if (response && response.success && response.text) {
-                    let answer = cleanDialogueAnswer(response.text);
-                    if (!answer || answer.length < 5) {
-                        answer = response.text.trim();
+        try {
+            chrome.runtime.sendMessage({
+                type: 'ASK_AI',
+                prompt: prompt,
+                courseSlug: courseSlug
+            }, async (response) => {
+                try {
+                    if (chrome.runtime?.lastError) {
+                        addLog(`Dialogue message error: ${chrome.runtime.lastError.message}`, "warn");
+                        return;
                     }
+                    if (response && response.success && response.text) {
+                        let answer = cleanDialogueAnswer(response.text);
+                        if (!answer || answer.length < 5) {
+                            answer = response.text.trim();
+                        }
 
-                    addLog(`Generated humanized response (${answer.length} chars). Typing into chat...`, "info");
-                    
-                    // Human-like pause before typing (0.8 - 1.4 seconds)
-                    await new Promise(r => setTimeout(r, 900));
-
-                    const inputEl = findChatInputField();
-                    if (inputEl) {
-                        setReactInputValue(inputEl, answer);
+                        addLog(`Generated student response (${answer.length} chars). Typing into chat...`, "info");
+                        
                         await new Promise(r => setTimeout(r, 600));
 
-                        const sendBtn = findChatSendButton(inputEl);
-                        if (sendBtn) {
-                            sendBtn.disabled = false;
-                            sendBtn.removeAttribute('aria-disabled');
-                            triggerClick(sendBtn);
-                        }
-                        
-                        await new Promise(r => setTimeout(r, 400));
-                        // Always trigger Enter keydown/keypress/keyup to guarantee submission in chat
-                        inputEl.focus();
-                        inputEl.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
-                        inputEl.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
-                        inputEl.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
-                        if (inputEl.form && typeof inputEl.form.requestSubmit === 'function') {
-                            try { inputEl.form.requestSubmit(); } catch (e) {}
-                        }
+                        const inputEl = findChatInputField();
+                        if (inputEl) {
+                            setReactInputValue(inputEl, answer);
+                            await new Promise(r => setTimeout(r, 600));
 
-                        sentDialogueAnswers.push(answer);
-                        answeredStudentTurns = currentTurn;
-                        lastAnsweredDialogueQuestion = latestCoachMsg.replace(/\s+/g, ' ').trim();
-                        lastDialogueMessageSentTime = Date.now();
-                        dialogueTurnCount = currentTurn + 1;
-                        addLog(`Sent humanized response to Coursera AI (Turn ${currentTurn})!`, "success");
-                        showStatus(`Response sent (Turn ${currentTurn})! Waiting for coach's reply...`);
+                            const sendBtn = findChatSendButton(inputEl);
+                            if (sendBtn) {
+                                sendBtn.disabled = false;
+                                sendBtn.removeAttribute('aria-disabled');
+                                triggerClick(sendBtn);
+                            }
+                            
+                            await new Promise(r => setTimeout(r, 400));
+                            inputEl.focus();
+                            inputEl.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+                            inputEl.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+                            inputEl.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+                            if (inputEl.form && typeof inputEl.form.requestSubmit === 'function') {
+                                try { inputEl.form.requestSubmit(); } catch (e) {}
+                            }
+
+                            sentDialogueAnswers.push(answer);
+                            lastSentDialogueAnswer = answer;
+                            lastDialogueMessageSentTime = Date.now();
+                            dialogueTurnCount = currentTurn + 1;
+                            addLog(`Sent response to Coursera AI (Turn ${currentTurn})!`, "success");
+                            showStatus(`Response sent (Turn ${currentTurn})! Waiting 5s before next turn...`);
+                        }
+                    } else {
+                        addLog(`Dialogue AI error: ${response?.error || 'No response'}`, "warn");
                     }
-                } else {
-                    addLog(`Dialogue AI error: ${response?.error || 'No response'}`, "warn");
+                } catch (e) {
+                    addLog(`Error during dialogue submission: ${e.message}`, "error");
+                } finally {
+                    isGeneratingDialogueResponse = false;
                 }
-            } catch (e) {
-                addLog(`Error during dialogue: ${e.message}`, "error");
-            } finally {
-                isGeneratingDialogueResponse = false;
-            }
-        });
+            });
+        } catch (err) {
+            isGeneratingDialogueResponse = false;
+            addLog(`Failed to send dialogue request: ${err.message}`, "warn");
+        }
     }
 
     function getQuizInputs() {
@@ -2512,14 +2598,21 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
                             rawPrompt: prompt,
                             rawResponse: text
                         };
-                        chrome.storage.local.get(['courseQuizData'], (data) => {
-                            const cData = data.courseQuizData || {};
-                            cData[courseSlug] = quizRecord;
-                            chrome.storage.local.set({ 
-                                lastGeminiQuizData: quizRecord,
-                                courseQuizData: cData
-                            });
-                        });
+                        if (isExtensionValid()) {
+                            try {
+                                chrome.storage.local.get(['courseQuizData'], (data) => {
+                                    if (chrome.runtime?.lastError || !isExtensionValid()) return;
+                                    const cData = data?.courseQuizData || {};
+                                    cData[courseSlug] = quizRecord;
+                                    try {
+                                        chrome.storage.local.set({ 
+                                            lastGeminiQuizData: quizRecord,
+                                            courseQuizData: cData
+                                        });
+                                    } catch (err) {}
+                                });
+                            } catch (e) {}
+                        }
 
                         addLog(`Marked answers for ${markedQuestionsCount}/${questions.length} questions via ${providerName}.`, "success");
                         acceptHonorCode();
@@ -2690,20 +2783,27 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
 
         // Update popup storage with grade
         const currentCourseSlug = getCourseSlugFromUrl();
-        chrome.storage.local.get(['lastGeminiQuizData', 'courseQuizData'], (data) => {
-            const updates = {};
-            if (data.lastGeminiQuizData) {
-                data.lastGeminiQuizData.grade = quizSession.grade;
-                updates.lastGeminiQuizData = data.lastGeminiQuizData;
-            }
-            if (data.courseQuizData && data.courseQuizData[currentCourseSlug]) {
-                data.courseQuizData[currentCourseSlug].grade = quizSession.grade;
-                updates.courseQuizData = data.courseQuizData;
-            }
-            if (Object.keys(updates).length > 0) {
-                chrome.storage.local.set(updates);
-            }
-        });
+        if (isExtensionValid()) {
+            try {
+                chrome.storage.local.get(['lastGeminiQuizData', 'courseQuizData'], (data) => {
+                    if (chrome.runtime?.lastError || !isExtensionValid()) return;
+                    const updates = {};
+                    if (data?.lastGeminiQuizData) {
+                        data.lastGeminiQuizData.grade = quizSession.grade;
+                        updates.lastGeminiQuizData = data.lastGeminiQuizData;
+                    }
+                    if (data?.courseQuizData && data.courseQuizData[currentCourseSlug]) {
+                        data.courseQuizData[currentCourseSlug].grade = quizSession.grade;
+                        updates.courseQuizData = data.courseQuizData;
+                    }
+                    if (Object.keys(updates).length > 0) {
+                        try {
+                            chrome.storage.local.set(updates);
+                        } catch (err) {}
+                    }
+                });
+            } catch (e) {}
+        }
 
         addLog(`🎉 Step 4: Coursera grade confirmed: ${quizSession.grade}!`, "success");
         addLog("Waiting 4.5s for Coursera to persist completion and award green checkmark...", "info");
@@ -2730,6 +2830,7 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
        ======================================================================== */
     function handleAutoPilot() {
         try {
+            if (!isExtensionValid()) return;
             if (!state.autoNavigate && !state.autoSolve) return;
 
             // 1. SPA ROUTE CHANGE DETECTION (ALWAYS RUN FIRST!)
@@ -2741,7 +2842,9 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
                 lastStartClickTime = 0;
                 lastStartClickUrl = '';
                 isGeneratingDialogueResponse = false;
+                dialogueResponseStartTime = 0;
                 lastAnsweredDialogueQuestion = '';
+                lastSentDialogueAnswer = '';
                 lastStartDialogueClickTime = 0;
                 lastDialogueMessageSentTime = 0;
                 dialogueTurnCount = 1;
@@ -3236,16 +3339,27 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
             }
         }
     } catch (err) {
+        if (err && err.message && err.message.includes('Extension context invalidated')) {
+            return;
+        }
         console.error("AutoPilot Error:", err);
     }
 }
 
     // Run autopilot loop every 1 second
-    setInterval(() => {
+    const autoPilotTimer = setInterval(() => {
+        if (!isExtensionValid()) {
+            clearInterval(autoPilotTimer);
+            return;
+        }
         try {
             syncSpeedToMainWorld();
             handleAutoPilot();
         } catch (e) {
+            if (e && e.message && e.message.includes('Extension context invalidated')) {
+                clearInterval(autoPilotTimer);
+                return;
+            }
             console.error("AutoPilot interval exception:", e);
         }
     }, 1000);
