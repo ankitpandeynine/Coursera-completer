@@ -37,6 +37,7 @@
     let itemReattemptMap = {}; // Tracks reattempt count by item path to strictly reattempt only ONCE
     let videoEndedFirstSeenTime = 0; // Timestamp when video first ended on current page
     let dialogueTurnCount = 1; // Counter for dialogue message turns
+    let sentDialogueAnswers = []; // History of answers sent by AutoPilot in dialogue
 
     function hasAnyApiKey() {
         return !!(state.geminiApiKey || state.groqApiKey || state.openRouterApiKey || state.nvidiaApiKey);
@@ -1175,55 +1176,143 @@
 
     function isDialogueCompletedPage() {
         const text = (document.body ? document.body.textContent || '' : '').toLowerCase();
-        const hasSummaryKeywords = (text.includes('your strengths') || text.includes('areas for improvement') || text.includes("during today's session") || text.includes("session summary")) &&
-                                   (text.includes('dialogue is powered by ai') || text.includes('tell us what you think') || text.includes('strengths:'));
-        return hasSummaryKeywords;
+        
+        // 1. Explicit summary keywords
+        const hasSummaryKeywords = (text.includes('your strengths') || text.includes('areas for improvement') || text.includes("during today's session") || text.includes("session summary") || text.includes("dialogue completed") || text.includes("great job on completing the dialogue") || text.includes("you've completed this dialogue")) &&
+                                   (text.includes('dialogue is powered by ai') || text.includes('tell us what you think') || text.includes('strengths:') || text.includes('summary') || text.includes('performance'));
+        if (hasSummaryKeywords) return true;
+
+        // 2. Chat input disappeared on a dialogue URL and Next item button or summary card is visible
+        const chatInput = findChatInputField();
+        if (!chatInput) {
+            const hasEndMarkers = text.includes('session summary') || text.includes('strengths') || text.includes('completed') || text.includes('congratulations') || text.includes('feedback');
+            const hasNextBtn = !!findNextItemButton();
+            if (hasEndMarkers && hasNextBtn) return true;
+        }
+
+        return false;
+    }
+
+    function extractLatestCoachMessageFromText(fullText, sentMessages = []) {
+        if (!fullText) return '';
+        let clean = fullText;
+
+        // 1. Strip composer boilerplate and footer info
+        clean = clean.replace(/Dialogue is powered by AI[\s\S]*$/i, '');
+        clean = clean.replace(/Send a message[\s\S]*$/i, '');
+        clean = clean.replace(/End Dialogue/gi, '');
+        clean = clean.replace(/I'm stuck/gi, '');
+
+        // 2. Strip everything before "Start Dialogue" if present (removes intro / objectives)
+        if (/Start Dialogue/i.test(clean)) {
+            const parts = clean.split(/Start Dialogue["']?/i);
+            clean = parts[parts.length - 1];
+        }
+
+        // 3. Split into blocks by double newline or distinct paragraphs
+        let blocks = clean.split(/\n\s*\n/)
+            .map(b => b.replace(/\s+/g, ' ').trim())
+            .filter(b => b.length > 15);
+
+        // If no double-spaced blocks, try splitting by single newlines for compact formatting
+        if (blocks.length === 0) {
+            blocks = clean.split('\n')
+                .map(b => b.replace(/\s+/g, ' ').trim())
+                .filter(b => b.length > 15);
+        }
+
+        // 4. Remove any blocks that match student messages previously sent
+        if (sentMessages && sentMessages.length > 0) {
+            blocks = blocks.filter(b => {
+                return !sentMessages.some(sent => {
+                    if (!sent) return false;
+                    const normSent = sent.replace(/\s+/g, ' ').trim().toLowerCase();
+                    const normB = b.toLowerCase();
+                    return normB === normSent || normB.includes(normSent) || normSent.includes(normB);
+                });
+            });
+        }
+
+        // 5. Filter out known intro fragments if any leaked through
+        blocks = blocks.filter(b => {
+            const low = b.toLowerCase();
+            return !low.includes("when you're ready, click") &&
+                   !low.includes("welcome! during this dialogue") &&
+                   !low.includes("here's what we'll cover") &&
+                   !low.includes("dialogue is powered by ai") &&
+                   !low.includes("today's goals") &&
+                   !low.includes("practice quiz") &&
+                   !low.includes("digital foundations");
+        });
+
+        if (blocks.length > 0) {
+            return blocks[blocks.length - 1];
+        }
+        return '';
+    }
+
+    function extractFullDialogueContextFromText(fullText) {
+        if (!fullText) return '';
+        let clean = fullText;
+        clean = clean.replace(/Dialogue is powered by AI[\s\S]*$/i, '');
+        clean = clean.replace(/Send a message[\s\S]*$/i, '');
+        clean = clean.replace(/End Dialogue/gi, '');
+        clean = clean.replace(/I'm stuck/gi, '');
+
+        if (/Start Dialogue/i.test(clean)) {
+            const parts = clean.split(/Start Dialogue["']?/i);
+            clean = parts[parts.length - 1];
+        }
+
+        const blocks = clean.split(/\n\s*\n/)
+            .map(b => b.replace(/\s+/g, ' ').trim())
+            .filter(b => b.length > 15 && !b.toLowerCase().includes("today's goals"));
+
+        return blocks.slice(-6).join('\n\n');
     }
 
     function extractLatestCoachMessage() {
         const mainContainer = document.querySelector('[role="main"], [data-testid="coach-conversation"], [class*="dialogue" i], [class*="conversation" i], .cds-FullscreenDialog-scrollContainer') || document.body;
 
-        // 1. Target coach messages by feedback buttons (thumbs up / thumbs down / copy only exist on coach messages!)
-        const feedbackBtns = Array.from(mainContainer.querySelectorAll('button[aria-label*="thumb" i], button[aria-label*="helpful" i], button[aria-label*="copy" i], svg[data-testid*="thumb" i]'));
-        if (feedbackBtns.length > 0) {
-            const lastFeedback = feedbackBtns[feedbackBtns.length - 1];
-            let msgContainer = lastFeedback.closest('[class*="message" i], [class*="bubble" i], [class*="turn" i], [data-testid*="message" i]') || 
-                               lastFeedback.parentElement?.parentElement;
-            if (msgContainer) {
-                const clone = msgContainer.cloneNode(true);
-                clone.querySelectorAll('button, svg, textarea, input, [role="button"]').forEach(el => el.remove());
-                const text = (clone.innerText || clone.textContent || '').trim();
-                if (text.length > 15 && !text.includes("When you're ready, click")) return text;
+        // STRATEGY 1: DOM Structure relative to Coach Action Icons (Copy, Thumbs Up, Thumbs Down)
+        try {
+            const actionBtns = Array.from(mainContainer.querySelectorAll('button, [role="button"]')).filter(b => {
+                if (b.closest('aside, nav, header, [class*="composer" i], [class*="input" i]')) return false;
+                const aria = (b.getAttribute('aria-label') || '').toLowerCase();
+                const title = (b.getAttribute('title') || '').toLowerCase();
+                const hasSvg = !!b.querySelector('svg');
+                return (aria.includes('thumb') || aria.includes('helpful') || aria.includes('copy') || aria.includes('like') || (hasSvg && (b.innerText || '').trim() === ''));
+            });
+
+            if (actionBtns.length > 0) {
+                const lastBtn = actionBtns[actionBtns.length - 1];
+                const btnRow = lastBtn.closest('div[class*="row" i], div[class*="action" i], div[class*="feedback" i]') || lastBtn.parentElement;
+                if (btnRow) {
+                    let prev = btnRow.previousElementSibling;
+                    while (prev) {
+                        const clone = prev.cloneNode(true);
+                        clone.querySelectorAll('button, svg, textarea, input, [role="button"]').forEach(el => el.remove());
+                        const text = (clone.innerText || clone.textContent || '').replace(/\s+/g, ' ').trim();
+                        if (text.length > 15 && !text.toLowerCase().includes("dialogue is powered by ai") && !text.toLowerCase().includes("when you're ready, click")) {
+                            return text;
+                        }
+                        prev = prev.previousElementSibling;
+                    }
+                }
             }
+        } catch (e) {
+            console.warn('[AutoPilot] Strategy 1 extraction error:', e);
         }
 
-        // 2. Chat message bubbles excluding student messages
-        const allMessages = Array.from(mainContainer.querySelectorAll('[data-testid*="message" i], [class*="message" i], [class*="bubble" i], [class*="chat-turn" i]')).filter(el => {
-            if (el.closest('textarea, input, [class*="composer" i], [class*="input" i], aside, nav, header')) return false;
-            const cl = (el.className || '').toLowerCase();
-            const text = (el.innerText || el.textContent || '').trim();
-            if (cl.includes('user') || cl.includes('student') || cl.includes('self') || cl.includes('right')) return false;
-            if (text.includes("Dialogue is powered by AI") || text.includes("When you're ready, click")) return false;
-            return text.length > 15;
-        });
-        if (allMessages.length > 0) {
-            const lastMsg = allMessages[allMessages.length - 1];
-            const clone = lastMsg.cloneNode(true);
-            clone.querySelectorAll('button, svg, textarea, input').forEach(el => el.remove());
-            const text = (clone.innerText || clone.textContent || '').trim();
-            if (text.length > 15) return text;
-        }
-
-        // 3. Fallback: paragraphs inside main container
-        const paragraphs = Array.from(mainContainer.querySelectorAll('p')).filter(el => {
-            if (el.closest('textarea, input, button, header, aside, nav, [class*="composer" i]')) return false;
-            const text = (el.innerText || el.textContent || '').trim();
-            if (text.length < 15) return false;
-            if (text.includes("Dialogue is powered by AI") || text.includes("When you're ready, click") || text.includes("Today's goals")) return false;
-            return true;
-        });
-        if (paragraphs.length > 0) {
-            return (paragraphs[paragraphs.length - 1].innerText || paragraphs[paragraphs.length - 1].textContent || '').trim();
+        // STRATEGY 2: Structured text stream parsing (Proven against Coursera CDS layout)
+        try {
+            const fullText = (mainContainer.innerText || mainContainer.textContent || '').trim();
+            const textResult = extractLatestCoachMessageFromText(fullText, sentDialogueAnswers);
+            if (textResult && textResult.length > 15) {
+                return textResult;
+            }
+        } catch (e) {
+            console.warn('[AutoPilot] Strategy 2 extraction error:', e);
         }
 
         return '';
@@ -1231,14 +1320,8 @@
 
     function extractFullDialogueContext() {
         const mainContainer = document.querySelector('[role="main"], [data-testid="coach-conversation"], [class*="dialogue" i], [class*="conversation" i], .cds-FullscreenDialog-scrollContainer') || document.body;
-        const paragraphs = Array.from(mainContainer.querySelectorAll('p, [class*="message" i]')).filter(el => {
-            if (el.closest('textarea, input, button, header, aside, nav, [class*="composer" i]')) return false;
-            const text = (el.innerText || el.textContent || '').trim();
-            if (text.length < 15) return false;
-            if (text.includes("Dialogue is powered by AI") || text.includes("When you're ready, click") || text.includes("Today's goals")) return false;
-            return true;
-        });
-        return paragraphs.slice(-6).map(p => (p.innerText || p.textContent || '').trim()).join('\n\n');
+        const fullText = (mainContainer.innerText || mainContainer.textContent || '').trim();
+        return extractFullDialogueContextFromText(fullText);
     }
 
     function findChatInputField() {
@@ -1264,10 +1347,9 @@
 
     function findChatSendButton(inputEl) {
         if (inputEl) {
-            const parent = inputEl.closest('form, [class*="composer" i], [class*="input" i], [class*="chat" i], [class*="footer" i]') || inputEl.parentElement;
+            const parent = inputEl.closest('form, [class*="composer" i], [class*="input" i], [class*="chat" i], [class*="footer" i], .cds-FullscreenDialog-bottomBar') || inputEl.parentElement?.parentElement;
             if (parent) {
                 const btns = Array.from(parent.querySelectorAll('button')).filter(b => {
-                    if (b.disabled || b.getAttribute('aria-disabled') === 'true') return false;
                     const aria = (b.getAttribute('aria-label') || '').toLowerCase();
                     const title = (b.getAttribute('title') || '').toLowerCase();
                     if (aria.includes('voice') || aria.includes('mic') || title.includes('mic')) return false;
@@ -1276,13 +1358,16 @@
                 const sendBtn = btns.find(b => {
                     const a = (b.getAttribute('aria-label') || '').toLowerCase();
                     const tid = (b.getAttribute('data-testid') || '').toLowerCase();
-                    return a.includes('send') || tid.includes('send');
-                }) || btns.find(b => b.querySelector('svg')) || btns[btns.length - 1];
+                    return a.includes('send') || tid.includes('send') || a.includes('submit');
+                }) || btns.find(b => {
+                    const svg = b.querySelector('svg');
+                    return svg && !b.disabled && b.getAttribute('aria-disabled') !== 'true';
+                }) || btns.find(b => !b.disabled && b.getAttribute('aria-disabled') !== 'true');
                 if (sendBtn) return sendBtn;
             }
         }
         const globalSend = document.querySelector('button[aria-label*="send" i], button[data-testid*="send" i]');
-        if (globalSend && !globalSend.disabled) return globalSend;
+        if (globalSend) return globalSend;
         return null;
     }
 
@@ -1297,6 +1382,17 @@
             return;
         }
 
+        // Try document.execCommand first which natively sets the value and updates React fiber state
+        try {
+            el.select();
+            const success = document.execCommand('insertText', false, value);
+            if (success && el.value === value) {
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+                el.dispatchEvent(new Event('change', { bubbles: true }));
+                return;
+            }
+        } catch (e) {}
+
         const proto = el.tagName === 'TEXTAREA' 
             ? window.HTMLTextAreaElement.prototype 
             : window.HTMLInputElement.prototype;
@@ -1308,6 +1404,9 @@
         }
         el.dispatchEvent(new Event('input', { bubbles: true }));
         el.dispatchEvent(new Event('change', { bubbles: true }));
+        try {
+            el.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true, inputType: 'insertText', data: value }));
+        } catch (e) {}
     }
 
     async function handleDialogueItem() {
@@ -1320,16 +1419,36 @@
                     addLog("Dialogue completed! Performance summary recorded. Advancing to next item...", "success");
                     showStatus("Dialogue complete! Advancing to next item in 3s...");
                     triggerClick(nextBtn);
+                } else {
+                    const nextTarget = findNextPendingSidebarItem() || findNextTargetSidebarItem(state.focusMode);
+                    if (nextTarget) {
+                        lastNavTime = Date.now();
+                        addLog("Dialogue completed! Advancing to next sidebar item...", "success");
+                        showStatus("Advancing to next item in 3s...");
+                        triggerClick(nextTarget);
+                    }
                 }
             }
             return;
         }
 
-        // Stage 1: Start Dialogue button
-        const startDialogueBtn = Array.from(document.querySelectorAll('button')).find(b => {
+        // Stage 0: Modal confirmation check (if modal is currently open)
+        const confirmModalBtn = Array.from(document.querySelectorAll('[role="dialog"] button, .cds-dialog button, div[class*="modal" i] button')).find(b => {
             if (b.disabled || b.getAttribute('aria-disabled') === 'true') return false;
             const t = (b.innerText || b.textContent || '').trim().toLowerCase();
-            return t === 'start dialogue' || t === 'begin dialogue' || t.includes('start dialogue');
+            return t === 'end dialogue' || t === 'end' || t === 'confirm' || t === 'yes';
+        });
+        if (confirmModalBtn) {
+            addLog("Detected open 'End Dialogue' modal. Confirming to complete session...", "info");
+            triggerClick(confirmModalBtn);
+            return;
+        }
+
+        // Stage 1: Start Dialogue button
+        const startDialogueBtn = Array.from(document.querySelectorAll('button, a, [role="button"]')).find(b => {
+            if (b.disabled || b.getAttribute('aria-disabled') === 'true') return false;
+            const t = (b.innerText || b.textContent || '').trim().toLowerCase();
+            return t === 'start dialogue' || t === 'begin dialogue' || (t.includes('start dialogue') && t.length < 30);
         });
 
         if (startDialogueBtn && isElementVisible(startDialogueBtn)) {
@@ -1343,22 +1462,35 @@
             return;
         }
 
-        // Check if Dialogue finished and End Dialogue button is available
-        const endDialogueBtn = Array.from(document.querySelectorAll('button')).find(b => {
+        // Check if Dialogue finished and End Dialogue button should be clicked
+        const endDialogueBtn = Array.from(document.querySelectorAll('button, a, [role="button"]')).find(b => {
             if (b.disabled || b.getAttribute('aria-disabled') === 'true') return false;
             const t = (b.innerText || b.textContent || '').trim().toLowerCase();
-            return t === 'end dialogue' || t === 'finish dialogue' || t === 'complete dialogue';
+            return (t === 'end dialogue' || t === 'finish dialogue' || t === 'complete dialogue') && !b.closest('[role="dialog"], .cds-dialog');
         });
         const chatText = (document.body ? document.body.innerText || '' : '').toLowerCase();
-        if (endDialogueBtn && (chatText.includes('click end dialogue') || chatText.includes('you have completed') || chatText.includes('that wraps up') || chatText.includes('great work completing') || dialogueTurnCount >= 5)) {
+        const hasFinishedCriteria = chatText.includes('click end dialogue') || 
+                                    chatText.includes('click "end dialogue"') ||
+                                    chatText.includes('you have completed') || 
+                                    chatText.includes('that wraps up') || 
+                                    chatText.includes('great work completing') || 
+                                    chatText.includes('congratulations on completing') ||
+                                    chatText.includes('that concludes our dialogue') ||
+                                    dialogueTurnCount >= 4;
+
+        if (endDialogueBtn && hasFinishedCriteria) {
             addLog("Dialogue criteria completed. Clicking 'End Dialogue'...", "info");
+            showStatus("Dialogue complete! Ending session...");
             triggerClick(endDialogueBtn);
             setTimeout(() => {
-                const confirmEndBtn = Array.from(document.querySelectorAll('[role="dialog"] button, .cds-dialog button')).find(b => {
+                const confirmEndBtn = Array.from(document.querySelectorAll('[role="dialog"] button, .cds-dialog button, div[class*="modal" i] button')).find(b => {
                     const t = (b.innerText || b.textContent || '').trim().toLowerCase();
-                    return t === 'end dialogue' || t === 'confirm' || t === 'yes';
+                    return t === 'end dialogue' || t === 'end' || t === 'confirm' || t === 'yes';
                 });
-                if (confirmEndBtn) triggerClick(confirmEndBtn);
+                if (confirmEndBtn) {
+                    triggerClick(confirmEndBtn);
+                    addLog("Confirmed 'End Dialogue' in modal dialog.", "info");
+                }
             }, 800);
             return;
         }
@@ -1442,29 +1574,38 @@ CRITICAL INSTRUCTIONS FOR A HUMANIZED STUDENT RESPONSE:
                     addLog(`Generated humanized response (${answer.length} chars). Typing into chat...`, "info");
                     
                     // Human-like pause before typing (1.2 - 2.0 seconds)
-                    await new Promise(r => setTimeout(r, 1500));
+                    await new Promise(r => setTimeout(r, 1200));
 
                     const inputEl = findChatInputField();
                     if (inputEl) {
                         setReactInputValue(inputEl, answer);
-                        await new Promise(r => setTimeout(r, 700));
+                        await new Promise(r => setTimeout(r, 600));
 
                         const sendBtn = findChatSendButton(inputEl);
+                        let sent = false;
                         if (sendBtn && !sendBtn.disabled && sendBtn.getAttribute('aria-disabled') !== 'true') {
                             triggerClick(sendBtn);
-                            addLog(`Sent humanized response to Coursera AI (Turn ${dialogueTurnCount})!`, "success");
-                            showStatus("Response sent! Waiting for coach's reply...");
-                            lastAnsweredDialogueQuestion = normalizedQuestion;
-                            lastDialogueMessageSentTime = Date.now();
-                            dialogueTurnCount++;
-                        } else {
-                            inputEl.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
-                            inputEl.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
-                            addLog(`Dispatched Enter to send response (Turn ${dialogueTurnCount}).`, "info");
-                            lastAnsweredDialogueQuestion = normalizedQuestion;
-                            lastDialogueMessageSentTime = Date.now();
-                            dialogueTurnCount++;
+                            sent = true;
                         }
+                        
+                        await new Promise(r => setTimeout(r, 500));
+                        // If input still contains value or sendBtn wasn't clicked, dispatch Enter and requestSubmit
+                        if (!sent || (inputEl.value && inputEl.value.trim().length > 5)) {
+                            inputEl.focus();
+                            inputEl.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+                            inputEl.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+                            inputEl.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+                            if (inputEl.form && typeof inputEl.form.requestSubmit === 'function') {
+                                try { inputEl.form.requestSubmit(); } catch (e) {}
+                            }
+                        }
+
+                        sentDialogueAnswers.push(answer);
+                        lastAnsweredDialogueQuestion = normalizedQuestion;
+                        lastDialogueMessageSentTime = Date.now();
+                        dialogueTurnCount++;
+                        addLog(`Sent humanized response to Coursera AI (Turn ${dialogueTurnCount - 1})!`, "success");
+                        showStatus("Response sent! Waiting for coach's reply...");
                     }
                 } else {
                     addLog(`Dialogue AI error: ${response?.error || 'No response'}`, "warn");
@@ -2413,6 +2554,9 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
                 isGeneratingDialogueResponse = false;
                 lastAnsweredDialogueQuestion = '';
                 lastStartDialogueClickTime = 0;
+                lastDialogueMessageSentTime = 0;
+                dialogueTurnCount = 1;
+                sentDialogueAnswers = [];
                 
                 // Cleanly reset quiz session whenever user or autopilot navigates to a new item
                 quizSession.url = window.location.href;
@@ -2441,10 +2585,11 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
                 }
             }
 
-            // B. 2-Minute Skip Watchdog: If stuck on same page for >2 minutes (and video is not actively playing forward), skip to next item!
+            // B. 2-Minute Skip Watchdog: If stuck on same page for >2 minutes (and video is not actively playing forward and dialogue is not actively conversing), skip to next item!
             const video = document.querySelector('video');
             const isVideoActivelyPlaying = video && !video.paused && !video.ended && (video.readyState >= 3);
-            if (timeOnPage > 120000 && !isVideoActivelyPlaying && (Date.now() - lastNavTime > 4000)) {
+            const isDialogueActive = isDialogueOrCoachItem() && !isDialogueCompletedPage() && (Date.now() - lastDialogueMessageSentTime < 90000);
+            if (timeOnPage > 120000 && !isVideoActivelyPlaying && !isDialogueActive && (Date.now() - lastNavTime > 4000)) {
                 addLog("AutoPilot Watchdog: Stuck on same page for >2 minutes. Auto-skipping to next item...", "warn");
                 showStatus("Stuck for >2 min! Auto-skipping to next item...");
                 lastNavTime = Date.now();
