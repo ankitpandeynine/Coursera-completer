@@ -31,8 +31,19 @@
         return 'hybrid';
     }
 
+    function getInitialSpeedInjectionEnabled() {
+        try {
+            const de = document.documentElement?.dataset?.courseraSpeedEnabled;
+            if (de !== undefined) return de !== 'false';
+            const se = sessionStorage.getItem('coursera_speed_enabled');
+            if (se !== undefined && se !== null) return se !== 'false';
+        } catch (e) {}
+        return true;
+    }
+
     let targetSpeed = getInitialSpeed();
     let forceMode = getInitialMode();
+    let speedInjectionEnabled = getInitialSpeedInjectionEnabled();
 
     // 3. Cache original native descriptors before any site scripts run
     const nativeRateDesc = Object.getOwnPropertyDescriptor(
@@ -69,9 +80,17 @@
                 configurable: true,
                 enumerable: true,
                 get: function() {
+                    if (!speedInjectionEnabled) {
+                        return nativeRateDesc?.get ? nativeRateDesc.get.call(this) : (this._nativePlaybackRate || 1.0);
+                    }
                     return targetSpeed;
                 },
                 set: function(val) {
+                    if (!speedInjectionEnabled) {
+                        this._nativePlaybackRate = val;
+                        setNativeRate(this, val);
+                        return;
+                    }
                     if (forceMode === 'virtual') {
                         setNativeRate(this, val);
                     } else {
@@ -81,7 +100,7 @@
                         } else {
                             setNativeRate(this, val);
                             const onReady = () => {
-                                setNativeRate(this, targetSpeed);
+                                if (speedInjectionEnabled) setNativeRate(this, targetSpeed);
                                 this.removeEventListener('canplay', onReady);
                                 this.removeEventListener('playing', onReady);
                             };
@@ -97,9 +116,16 @@
                     configurable: true,
                     enumerable: true,
                     get: function() {
+                        if (!speedInjectionEnabled) {
+                            return nativeDefaultRateDesc?.get ? nativeDefaultRateDesc.get.call(this) : (this._nativePlaybackRate || 1.0);
+                        }
                         return targetSpeed;
                     },
                     set: function(val) {
+                        if (!speedInjectionEnabled) {
+                            setNativeRate(this, val);
+                            return;
+                        }
                         if (this.readyState >= 2) {
                             setNativeRate(this, targetSpeed);
                         } else {
@@ -129,6 +155,7 @@
         } catch (e) {}
 
         const applySpeed = () => {
+            if (!speedInjectionEnabled) return;
             if (forceMode !== 'virtual') {
                 if (media.readyState >= 1) {
                     setNativeRate(media, targetSpeed);
@@ -161,8 +188,8 @@
        ======================================================================== */
     function checkAndAssistDrift(media) {
         if (!media || media.paused || media.ended) return;
-        // Strictly only run drift assist if explicitly in virtual mode
-        if (forceMode !== 'virtual') return;
+        // Strictly only run drift assist if speed injection is enabled and in virtual mode
+        if (!speedInjectionEnabled || forceMode !== 'virtual') return;
         // NEVER seek while still buffering or seeking to prevent buffering deadlock
         if (media.seeking || media.readyState < 3) return;
 
@@ -220,7 +247,10 @@
        PUBLIC API & IPC CONTROLS
        ======================================================================== */
     window.courseraPlaybackSpeed = {
-        set(speed, mode) {
+        set(speed, mode, enabled) {
+            if (enabled !== undefined) {
+                speedInjectionEnabled = !!enabled;
+            }
             targetSpeed = clamp(speed);
             if (mode && ['hybrid', 'native', 'virtual'].includes(mode)) {
                 forceMode = mode;
@@ -228,19 +258,43 @@
             try {
                 sessionStorage.setItem('coursera_speed', String(targetSpeed));
                 sessionStorage.setItem('coursera_force_mode', forceMode);
+                sessionStorage.setItem('coursera_speed_enabled', String(speedInjectionEnabled));
                 if (document.documentElement) {
                     document.documentElement.dataset.courseraSpeed = String(targetSpeed);
                     document.documentElement.dataset.courseraForceMode = forceMode;
+                    document.documentElement.dataset.courseraSpeedEnabled = String(speedInjectionEnabled);
                 }
             } catch (e) {}
 
             scanMedia();
             const list = document.querySelectorAll("video, audio");
             for (let i = 0; i < list.length; i++) {
-                if (forceMode !== 'virtual') {
+                if (!speedInjectionEnabled) {
+                    setNativeRate(list[i], 1.0);
+                } else if (forceMode !== 'virtual') {
                     setNativeRate(list[i], targetSpeed);
                 }
             }
+        },
+        setEnabled(enabled) {
+            speedInjectionEnabled = !!enabled;
+            try {
+                sessionStorage.setItem('coursera_speed_enabled', String(speedInjectionEnabled));
+                if (document.documentElement) {
+                    document.documentElement.dataset.courseraSpeedEnabled = String(speedInjectionEnabled);
+                }
+            } catch (e) {}
+            const list = document.querySelectorAll("video, audio");
+            for (let i = 0; i < list.length; i++) {
+                if (!speedInjectionEnabled) {
+                    setNativeRate(list[i], 1.0);
+                } else if (forceMode !== 'virtual') {
+                    setNativeRate(list[i], targetSpeed);
+                }
+            }
+        },
+        isEnabled() {
+            return speedInjectionEnabled;
         },
         get() {
             return targetSpeed;
@@ -255,9 +309,12 @@
         if (event.data.type === 'COURSERA_FORCE_SPEED' || event.data.type === 'COURSERA_SET_SPEED') {
             const parsedSpeed = parseFloat(event.data.speed);
             const mode = event.data.forceMode || event.data.mode;
-            if (!isNaN(parsedSpeed) && parsedSpeed > 0) {
-                window.courseraPlaybackSpeed.set(parsedSpeed, mode);
-            }
+            const enabled = event.data.enabled !== undefined ? !!event.data.enabled : (event.data.speedInjection !== undefined ? !!event.data.speedInjection : true);
+            window.courseraPlaybackSpeed.set(
+                !isNaN(parsedSpeed) && parsedSpeed > 0 ? parsedSpeed : targetSpeed,
+                mode,
+                enabled
+            );
         }
     });
 

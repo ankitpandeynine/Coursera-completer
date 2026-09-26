@@ -19,6 +19,7 @@
     if (window !== window.top) return;
 
     let state = {
+        speedInjection: true, // Toggle for whole video speed injection
         playbackSpeed: 3.0,
         forceMode: 'hybrid', // 'hybrid' | 'native' | 'virtual'
         bgPlay: true,
@@ -97,10 +98,11 @@
        SETTINGS & STORAGE
        ======================================================================== */
     chrome.storage.local.get([
-        'playbackSpeed', 'forceMode', 'bgPlay', 'autoNavigate', 'autoSolve',
+        'speedInjection', 'playbackSpeed', 'forceMode', 'bgPlay', 'autoNavigate', 'autoSolve',
         'focusMode', 'strictCompletion',
         'geminiApiKey', 'groqApiKey', 'openRouterApiKey', 'nvidiaApiKey', 'preferredProvider'
     ], (data) => {
+        if (data.speedInjection !== undefined) state.speedInjection = data.speedInjection;
         if (data.playbackSpeed !== undefined) state.playbackSpeed = parseFloat(data.playbackSpeed) || 3.0;
         if (data.forceMode) state.forceMode = data.forceMode;
         if (data.bgPlay !== undefined) state.bgPlay = data.bgPlay;
@@ -119,6 +121,13 @@
     });
 
     chrome.storage.onChanged.addListener((changes) => {
+        if (changes.speedInjection !== undefined) {
+            state.speedInjection = changes.speedInjection.newValue !== undefined ? changes.speedInjection.newValue : true;
+            syncSpeedToMainWorld();
+            updateSpeedBadge();
+            addLog(`Video Speed Injection set to: ${state.speedInjection ? 'ON (' + state.playbackSpeed + 'x)' : 'OFF (Native Coursera Speed)'}`, 'info');
+            showStatus(`Speed Injection: ${state.speedInjection ? 'ON (' + state.playbackSpeed + 'x)' : 'OFF (Native)'}`);
+        }
         if (changes.playbackSpeed !== undefined) {
             state.playbackSpeed = parseFloat(changes.playbackSpeed.newValue) || 3.0;
             syncSpeedToMainWorld();
@@ -176,14 +185,17 @@
             if (document.documentElement) {
                 document.documentElement.dataset.courseraSpeed = String(state.playbackSpeed);
                 document.documentElement.dataset.courseraForceMode = state.forceMode || 'hybrid';
+                document.documentElement.dataset.courseraSpeedEnabled = String(state.speedInjection !== false);
             }
             sessionStorage.setItem('coursera_speed', String(state.playbackSpeed));
             sessionStorage.setItem('coursera_force_mode', state.forceMode || 'hybrid');
+            sessionStorage.setItem('coursera_speed_enabled', String(state.speedInjection !== false));
         } catch(e) {}
         window.postMessage({
             type: 'COURSERA_FORCE_SPEED',
             speed: state.playbackSpeed,
-            forceMode: state.forceMode || 'hybrid'
+            forceMode: state.forceMode || 'hybrid',
+            enabled: state.speedInjection !== false
         }, '*');
     }
 
@@ -225,11 +237,15 @@
 
     function updateSpeedBadge() {
         const textEl = document.getElementById('coursera-speed-badge-text');
-        if (textEl) textEl.innerText = `${state.playbackSpeed}x`;
+        if (textEl) {
+            textEl.innerText = state.speedInjection ? `${state.playbackSpeed}x` : 'OFF';
+            textEl.style.color = state.speedInjection ? '#00E676' : '#ff9800';
+        }
         const modeEl = document.getElementById('coursera-speed-badge-mode');
         if (modeEl) {
-            modeEl.innerText = state.forceMode.toUpperCase();
-            modeEl.title = `Speed Force Method: ${state.forceMode.toUpperCase()} (Click or press \\ to toggle)`;
+            modeEl.innerText = state.speedInjection ? state.forceMode.toUpperCase() : 'NATIVE';
+            modeEl.title = state.speedInjection ? `Speed Force Method: ${state.forceMode.toUpperCase()} (Click or press \\ to toggle)` : 'Speed Injection Disabled (Playing at native Coursera speed)';
+            modeEl.style.color = state.speedInjection ? '#80d8ff' : '#888';
         }
     }
 
@@ -252,9 +268,9 @@
             user-select: none; box-shadow: 0 2px 8px rgba(0,0,0,0.5);
         `;
         badge.innerHTML = `
-            <span style="font-size: 11px; color: #aaa;">SPEED</span>
-            <span id="coursera-speed-badge-text">${state.playbackSpeed}x</span>
-            <span id="coursera-speed-badge-mode" title="Speed Force Method: ${state.forceMode.toUpperCase()} (Click or press \\ to toggle)" style="font-size: 10px; color: #80d8ff; cursor: pointer; border: 1px solid rgba(128, 216, 255, 0.4); border-radius: 4px; padding: 1px 5px; font-weight: 700; text-transform: uppercase;">${state.forceMode}</span>
+            <span id="coursera-speed-badge-label" style="font-size: 11px; color: #aaa; cursor: pointer;" title="Click to toggle Speed Injection ON/OFF">SPEED</span>
+            <span id="coursera-speed-badge-text" style="color: ${state.speedInjection ? '#00E676' : '#ff9800'};">${state.speedInjection ? `${state.playbackSpeed}x` : 'OFF'}</span>
+            <span id="coursera-speed-badge-mode" title="Speed Force Method: ${state.forceMode.toUpperCase()} (Click or press \\ to toggle)" style="font-size: 10px; color: ${state.speedInjection ? '#80d8ff' : '#888'}; cursor: pointer; border: 1px solid rgba(128, 216, 255, 0.4); border-radius: 4px; padding: 1px 5px; font-weight: 700; text-transform: uppercase;">${state.speedInjection ? state.forceMode : 'NATIVE'}</span>
             <button id="coursera-speed-minus" title="Decrease Speed (Hotkey: [)" style="background: rgba(255,255,255,0.2); border: none; color: white; border-radius: 50%; width: 20px; height: 20px; cursor: pointer; font-size: 13px;">-</button>
             <button id="coursera-speed-plus" title="Increase Speed (Hotkey: ])" style="background: rgba(255,255,255,0.2); border: none; color: white; border-radius: 50%; width: 20px; height: 20px; cursor: pointer; font-size: 13px;">+</button>
             <button id="coursera-speed-end" title="Fast-forward to End" style="background: rgba(0, 230, 118, 0.25); border: 1px solid rgba(0, 230, 118, 0.4); color: #00E676; border-radius: 12px; padding: 2px 8px; cursor: pointer; font-size: 11px; font-weight: bold; margin-left: 4px;">⏩ End</button>
@@ -264,6 +280,15 @@
             container.style.position = 'relative';
         }
         container.appendChild(badge);
+
+        const labelEl = badge.querySelector('#coursera-speed-badge-label');
+        if (labelEl) {
+            labelEl.addEventListener('click', (e) => {
+                e.stopPropagation();
+                state.speedInjection = !state.speedInjection;
+                chrome.storage.local.set({ speedInjection: state.speedInjection });
+            });
+        }
 
         const modeBtn = badge.querySelector('#coursera-speed-badge-mode');
         if (modeBtn) {
@@ -2697,14 +2722,16 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
             if (video) {
                 injectSpeedBadge(video);
 
-                // Directly enforce playback speed on video only when metadata is loaded
+                // Directly enforce playback speed on video only when metadata is loaded and speed injection is enabled
                 try {
                     if (video.readyState >= 1) {
-                        if (video.playbackRate !== state.playbackSpeed) {
-                            video.playbackRate = state.playbackSpeed;
-                        }
-                        if (video.defaultPlaybackRate !== state.playbackSpeed) {
-                            video.defaultPlaybackRate = state.playbackSpeed;
+                        if (state.speedInjection) {
+                            if (video.playbackRate !== state.playbackSpeed) {
+                                video.playbackRate = state.playbackSpeed;
+                            }
+                            if (video.defaultPlaybackRate !== state.playbackSpeed) {
+                                video.defaultPlaybackRate = state.playbackSpeed;
+                            }
                         }
                     }
                 } catch (e) {}

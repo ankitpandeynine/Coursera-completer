@@ -562,9 +562,16 @@
 
   <!-- TAB 1: Controls -->
   <div id="pane-settings" class="tab-pane active">
-    <!-- Playback Speed -->
+    <!-- Video Speed Injection & Playback Speed -->
     <div class="control-group">
-      <label>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+        <label class="checkbox-label" style="margin: 0; cursor: pointer;" title="Toggle video speed injection on or off. When disabled, videos play at Coursera's normal native speed.">
+          <input type="checkbox" id="speedInjectionCB" checked>
+          <span style="font-weight: 700; color: #fff;">⚡ Video Speed Injection</span>
+        </label>
+        <span id="speedToggleStatus" style="font-size: 11px; font-weight: 700; color: #00E676; background: rgba(0,230,118,0.15); border: 1px solid rgba(0,230,118,0.3); border-radius: 4px; padding: 2px 7px;">ENABLED</span>
+      </div>
+      <label id="speedInputWrapper" style="transition: opacity 0.2s ease;">
         <div class="label-title">
           <span>Force Speed</span>
           <span class="label-hint">Safe limit: 0.25x - 16x</span>
@@ -574,7 +581,7 @@
     </div>
 
     <!-- Speed Force Method -->
-    <div class="control-group">
+    <div class="control-group" id="forceMethodWrapper" style="transition: opacity 0.2s ease;">
       <label>
         <div class="label-title">
           <span>Force Method</span>

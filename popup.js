@@ -3,6 +3,10 @@
 
 document.addEventListener('DOMContentLoaded', () => {
     // Speed & Automation Controls
+    const speedInjectionCB = document.getElementById('speedInjectionCB');
+    const speedToggleStatus = document.getElementById('speedToggleStatus');
+    const speedInputWrapper = document.getElementById('speedInputWrapper');
+    const forceMethodWrapper = document.getElementById('forceMethodWrapper');
     const speedInput = document.getElementById('speedInput');
     const forceMethodSelect = document.getElementById('forceMethodSelect');
     const focusModeSelect = document.getElementById('focusModeSelect');
@@ -10,6 +14,37 @@ document.addEventListener('DOMContentLoaded', () => {
     const autoSolveCB = document.getElementById('autoSolveCB');
     const bgPlayCB = document.getElementById('bgPlayCB');
     const autoNavigateCB = document.getElementById('autoNavigateCB');
+
+    function updateSpeedInjectionUI(enabled) {
+        if (!speedToggleStatus) return;
+        if (enabled) {
+            speedToggleStatus.innerText = 'ENABLED';
+            speedToggleStatus.style.color = '#00E676';
+            speedToggleStatus.style.background = 'rgba(0, 230, 118, 0.15)';
+            speedToggleStatus.style.borderColor = 'rgba(0, 230, 118, 0.3)';
+            if (speedInputWrapper) {
+                speedInputWrapper.style.opacity = '1';
+                speedInputWrapper.style.pointerEvents = 'auto';
+            }
+            if (forceMethodWrapper) {
+                forceMethodWrapper.style.opacity = '1';
+                forceMethodWrapper.style.pointerEvents = 'auto';
+            }
+        } else {
+            speedToggleStatus.innerText = 'OFF (Native)';
+            speedToggleStatus.style.color = '#ff9800';
+            speedToggleStatus.style.background = 'rgba(255, 152, 0, 0.15)';
+            speedToggleStatus.style.borderColor = 'rgba(255, 152, 0, 0.3)';
+            if (speedInputWrapper) {
+                speedInputWrapper.style.opacity = '0.45';
+                speedInputWrapper.style.pointerEvents = 'none';
+            }
+            if (forceMethodWrapper) {
+                forceMethodWrapper.style.opacity = '0.45';
+                forceMethodWrapper.style.pointerEvents = 'none';
+            }
+        }
+    }
 
     // Provider Selector & Keys
     const providerSelect = document.getElementById('providerSelect');
@@ -257,12 +292,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function refreshStorage() {
         chrome.storage.local.get([
-            'playbackSpeed', 'forceMode', 'preferredProvider', 'focusMode', 'strictCompletion',
+            'speedInjection', 'playbackSpeed', 'forceMode', 'preferredProvider', 'focusMode', 'strictCompletion',
             'geminiApiKey', 'groqApiKey', 'openRouterApiKey', 'nvidiaApiKey',
             'autoSolve', 'bgPlay', 'autoNavigate',
             'activityLogs', 'lastGeminiQuizData', 'providerCooldowns'
         ], (data) => {
             cachedStorage = data;
+
+            if (speedInjectionCB) {
+                const isSpeedEnabled = data.speedInjection !== undefined ? !!data.speedInjection : true;
+                speedInjectionCB.checked = isSpeedEnabled;
+                updateSpeedInjectionUI(isSpeedEnabled);
+            }
 
             let currentSpeed = data.playbackSpeed !== undefined ? sanitizeSpeed(data.playbackSpeed) : 3;
             speedInput.value = currentSpeed;
@@ -313,6 +354,11 @@ document.addEventListener('DOMContentLoaded', () => {
             cachedStorage[k] = changes[k].newValue;
         });
 
+        if (changes.speedInjection !== undefined && speedInjectionCB) {
+            const isSpeedEnabled = changes.speedInjection.newValue !== undefined ? !!changes.speedInjection.newValue : true;
+            speedInjectionCB.checked = isSpeedEnabled;
+            updateSpeedInjectionUI(isSpeedEnabled);
+        }
         if (changes.forceMode && forceMethodSelect) {
             forceMethodSelect.value = changes.forceMode.newValue || 'hybrid';
         }
@@ -345,6 +391,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 cachedStorage.providerCooldowns = {};
                 updateProviderChips(cachedStorage);
             });
+        });
+    }
+
+    // Speed injection toggle listener
+    if (speedInjectionCB) {
+        speedInjectionCB.addEventListener('change', () => {
+            const isEnabled = speedInjectionCB.checked;
+            chrome.storage.local.set({ speedInjection: isEnabled });
+            updateSpeedInjectionUI(isEnabled);
         });
     }
 
