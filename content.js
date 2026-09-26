@@ -77,6 +77,7 @@
     let lastStartClickUrl = '';
     let isGeneratingDialogueResponse = false;
     let lastAnsweredDialogueQuestion = '';
+    let answeredStudentTurns = 0;
     let lastStartDialogueClickTime = 0;
     let lastDialogueMessageSentTime = 0;
 
@@ -1327,199 +1328,149 @@
                                 document.querySelector('[data-testid="dialogue-content"]');
         if (aiChatContainer) return aiChatContainer;
 
-        // Priority 2: Container relative to active chat input
+        // Priority 2: Semantic main or role=main
+        const mainEl = document.querySelector('main, [role="main"], [data-testid="coach-conversation"], .cds-FullscreenDialog-scrollContainer, div[class*="dialogue" i]');
+        if (mainEl) return mainEl;
+
+        // Priority 3: Parent of chat input that is at least a main-level or dialog container
         const chatInput = findChatInputField();
         if (chatInput) {
-            const parent = chatInput.closest('[role="main"], [data-testid="coach-conversation"], .cds-FullscreenDialog-scrollContainer, main, [class*="content" i]');
+            const parent = chatInput.closest('[role="main"], [data-testid="coach-conversation"], .cds-FullscreenDialog-scrollContainer, main');
             if (parent) return parent;
         }
-        
-        // Priority 3: Semantic main or role=main
-        const mainEl = document.querySelector('main, [role="main"], [data-testid="coach-conversation"], .cds-FullscreenDialog-scrollContainer');
-        if (mainEl) return mainEl;
+
         return document.body;
-    }
-
-    function getDialogueConversationState() {
-        // Locate Coursera AI Coach chat container
-        const container = getDialogueConversationContainer();
-        if (!container) {
-            return {
-                timeline: [],
-                lastSpeaker: null,
-                latestCoachMessage: '',
-                isWaitingForStudent: false,
-                allContextText: ''
-            };
-        }
-
-        // Query coach message bubbles (Coursera test-ids and classes from DevTools)
-        const rawCoachEls = Array.from(container.querySelectorAll(
-            '[data-testid="chat-message-llm"], .coach-message-response, [class*="coach-message-response"]'
-        ));
-
-        // Query user message bubbles
-        const rawUserEls = Array.from(container.querySelectorAll(
-            '[data-testid="chat-message-user"], .coach-message-client, [class*="coach-message-client"]'
-        ));
-
-        // Filter out child wrappers so we have 1 unique DOM element per message bubble
-        const filterRoots = (els) => els.filter(el => !els.some(other => other !== el && other.contains(el)));
-        const coachEls = filterRoots(rawCoachEls);
-        const userEls = filterRoots(rawUserEls);
-
-        // Build chronological list based on DOM order
-        const timeline = [];
-        coachEls.forEach(el => timeline.push({ type: 'coach', el }));
-        userEls.forEach(el => timeline.push({ type: 'student', el }));
-
-        timeline.sort((a, b) => {
-            const pos = a.el.compareDocumentPosition(b.el);
-            if (pos & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
-            if (pos & Node.DOCUMENT_POSITION_PRECEDING) return 1;
-            return 0;
-        });
-
-        // Extract clean text for each message in timeline
-        const processedTimeline = timeline.map(item => {
-            const clone = item.el.cloneNode(true);
-            clone.querySelectorAll('button, svg, [role="button"], textarea, input').forEach(n => n.remove());
-            const text = (clone.innerText || clone.textContent || '').replace(/\s+/g, ' ').trim();
-            return {
-                type: item.type,
-                text,
-                el: item.el
-            };
-        }).filter(item => item.text.length > 5);
-
-        if (processedTimeline.length === 0) {
-            // Fallback: If no dedicated test-ids found yet, check clean page text
-            const fullText = getCleanDialogueText();
-            const fallbackMsg = extractLatestCoachMessageFromText(fullText, sentDialogueAnswers);
-            return {
-                timeline: [],
-                lastSpeaker: fallbackMsg ? 'coach' : null,
-                latestCoachMessage: fallbackMsg,
-                isWaitingForStudent: !!fallbackMsg,
-                allContextText: fullText
-            };
-        }
-
-        const lastItem = processedTimeline[processedTimeline.length - 1];
-        const coachTurns = processedTimeline.filter(t => t.type === 'coach');
-        let latestCoachText = coachTurns.length > 0 ? coachTurns[coachTurns.length - 1].text : '';
-
-        // If latest coach message contains intro text like "When you're ready, click 'Start Dialogue'"
-        // Clean out the introductory preamble so the prompt focuses on the actual question!
-        let cleanPromptText = latestCoachText;
-        if (/Start Dialogue/i.test(cleanPromptText)) {
-            const parts = cleanPromptText.split(/Start Dialogue["']?/i);
-            const afterStart = parts[parts.length - 1].trim();
-            if (afterStart.length > 15) {
-                cleanPromptText = afterStart;
-            }
-        }
-        cleanPromptText = cleanPromptText.replace(/Dialogue is powered by AI[\s\S]*$/i, '').trim();
-
-        const contextBlocks = processedTimeline.slice(-6).map(t => `${t.type === 'coach' ? 'AI Coach' : 'Student'}: ${t.text}`);
-        const allContextText = contextBlocks.join('\n\n');
-
-        return {
-            timeline: processedTimeline,
-            lastSpeaker: lastItem.type, // 'coach' or 'student'
-            latestCoachMessage: cleanPromptText,
-            rawLatestCoachText: latestCoachText,
-            isWaitingForStudent: lastItem.type === 'coach',
-            allContextText
-        };
     }
 
     function getCleanDialogueText() {
         const container = getDialogueConversationContainer();
         const clone = container.cloneNode(true);
-        // Explicitly remove sidebar, drawer, navigation, and item navigation links so they never contaminate the text
-        clone.querySelectorAll('nav, aside, header, [role="navigation"], [class*="navigation" i], [class*="drawer" i], [class*="sidebar" i], [class*="CourseItem" i], [data-testid*="nav" i]').forEach(el => el.remove());
-        return (clone.innerText || clone.textContent || '').trim();
+        // Explicitly remove sidebar, drawer, navigation, item navigation links, buttons, inputs so they never contaminate the text
+        clone.querySelectorAll(
+            'nav, aside, header, [role="navigation"], [class*="navigation" i], [class*="drawer" i], ' +
+            '[class*="sidebar" i], [class*="CourseItem" i], [data-testid*="nav" i], ' +
+            'button, svg, [role="button"], textarea, input, form, [class*="composer" i]'
+        ).forEach(el => el.remove());
+        let txt = (clone.innerText || clone.textContent || '').trim();
+        txt = txt.replace(/Dialogue is powered by AI[\s\S]*$/i, '');
+        txt = txt.replace(/Send a message\s*$/i, '');
+        txt = txt.replace(/End Dialogue\s*$/i, '');
+        txt = txt.replace(/I'm stuck\s*$/i, '');
+        return txt.trim();
     }
 
-    function extractLatestCoachMessageFromText(fullText, sentMessages = []) {
-        if (!fullText) return '';
-        let clean = fullText;
+    function getDialogueConversationState() {
+        const cleanText = getCleanDialogueText();
+        const container = getDialogueConversationContainer();
+        const numSent = sentDialogueAnswers.length;
 
-        // 1. Strip intro / objectives before "Start Dialogue" if present
-        if (/Start Dialogue/i.test(clean)) {
-            const parts = clean.split(/Start Dialogue["']?/i);
-            clean = parts[parts.length - 1];
-        }
-
-        // 2. Strip bottom composer / footer metadata
-        clean = clean.replace(/Dialogue is powered by AI[\s\S]*$/i, '');
-        clean = clean.replace(/Send a message\s*$/i, '');
-        clean = clean.replace(/End Dialogue\s*$/i, '');
-        clean = clean.replace(/I'm stuck\s*$/i, '');
-
-        // 3. Split into blocks by double newline or distinct paragraphs
-        let blocks = clean.split(/\n\s*\n/)
-            .map(b => b.replace(/\s+/g, ' ').trim())
-            .filter(b => b.length > 15);
-
-        if (blocks.length === 0) {
-            blocks = clean.split('\n')
-                .map(b => b.replace(/\s+/g, ' ').trim())
-                .filter(b => b.length > 15);
-        }
-
-        // 4. Remove any blocks that match student messages previously sent
-        if (sentMessages && sentMessages.length > 0) {
-            blocks = blocks.filter(b => {
-                return !sentMessages.some(sent => {
-                    if (!sent) return false;
-                    const normSent = sent.replace(/\s+/g, ' ').trim().toLowerCase();
-                    const normB = b.toLowerCase();
-                    if (normB === normSent) return true;
-                    if (normSent.length > 25 && normB.includes(normSent.slice(0, 30))) return true;
-                    if (normB.length > 25 && normSent.includes(normB.slice(0, 30))) return true;
-                    return false;
-                });
-            });
-        }
-
-        // 5. Filter out known UI chrome fragments
-        blocks = blocks.filter(b => {
-            const low = b.toLowerCase();
-            return !low.includes("when you're ready, click \"start dialogue\"") &&
-                   !low.includes("dialogue is powered by ai") &&
-                   !low.includes("send a message") &&
-                   !low.includes("today's goals");
+        // Check if there are thumbs-up / feedback action buttons on the page (indicating an AI coach reply)
+        const actionBtns = Array.from(container.querySelectorAll('button, [role="button"]')).filter(b => {
+            if (b.closest('aside, nav, header, [class*="composer" i], [class*="input" i], [role="navigation"]')) return false;
+            const aria = (b.getAttribute('aria-label') || '').toLowerCase();
+            const title = (b.getAttribute('title') || '').toLowerCase();
+            const hasSvg = !!b.querySelector('svg');
+            return (aria.includes('thumb') || aria.includes('helpful') || aria.includes('like') || aria.includes('copy') || title.includes('thumb') || title.includes('helpful') || title.includes('copy')) && hasSvg;
         });
 
-        if (blocks.length > 0) {
-            return blocks[blocks.length - 1];
+        // TURN 1 (No student answer sent yet):
+        if (numSent === 0) {
+            let p = cleanText;
+            if (/Start Dialogue/i.test(p)) {
+                const parts = p.split(/Start Dialogue["']?/i);
+                p = parts[parts.length - 1];
+            }
+            p = p.replace(/^([^\n]+[\n\r]+){1,2}(?=Great|Welcome|Let's|In this|During this)/i, '').trim();
+            p = p.replace(/Dialogue is powered by AI[\s\S]*$/i, '').trim();
+
+            const isReady = p.length > 15;
+            return {
+                isWaitingForStudent: isReady,
+                currentTurnNumber: 1,
+                latestCoachMessage: isReady ? p : '',
+                allContextText: `AI Coach: ${p}`
+            };
         }
 
-        const questionMatches = clean.match(/[^.!?\n]+[?]/g);
-        if (questionMatches && questionMatches.length > 0) {
-            const candidate = questionMatches[questionMatches.length - 1].replace(/\s+/g, ' ').trim();
-            if (candidate.length > 20) return candidate;
+        // TURN 2+ (At least one student answer has already been sent):
+        const lastAns = sentDialogueAnswers[numSent - 1];
+        let snippet = lastAns.slice(0, 40).trim();
+        let idx = cleanText.lastIndexOf(snippet);
+
+        if (idx === -1 && lastAns.length > 60) {
+            snippet = lastAns.slice(15, 55).trim();
+            idx = cleanText.lastIndexOf(snippet);
         }
 
-        return '';
+        if (idx === -1) {
+            snippet = lastAns.slice(-30).trim();
+            idx = cleanText.lastIndexOf(snippet);
+        }
+
+        let afterText = '';
+        if (idx !== -1) {
+            afterText = cleanText.slice(idx + snippet.length).trim();
+            // If remainder of last answer is at the start of afterText, slice it off
+            const endSnippet = lastAns.slice(-25).trim();
+            const endIdx = afterText.indexOf(endSnippet);
+            if (endIdx !== -1) {
+                afterText = afterText.slice(endIdx + endSnippet.length).trim();
+            }
+        }
+
+        // STRATEGY 1 FALLBACK / REINFORCEMENT: DOM action button parent extraction
+        if ((!afterText || afterText.length < 15) && actionBtns.length > 0) {
+            const latestAction = actionBtns[actionBtns.length - 1];
+            let current = latestAction.parentElement;
+            while (current && current !== container) {
+                const clone = current.cloneNode(true);
+                clone.querySelectorAll('button, svg, textarea, input, [role="button"]').forEach(el => el.remove());
+                let txt = (clone.innerText || clone.textContent || '').replace(/\s+/g, ' ').trim();
+                txt = txt.replace(/Dialogue is powered by AI[\s\S]*$/i, '').trim();
+                if (txt.length > 20) {
+                    const isStudentAns = sentDialogueAnswers.some(ans => {
+                        const normAns = ans.replace(/\s+/g, ' ').trim().toLowerCase();
+                        return txt.toLowerCase().includes(normAns.slice(0, 30));
+                    });
+                    if (!isStudentAns) {
+                        afterText = txt;
+                        break;
+                    }
+                }
+                current = current.parentElement;
+            }
+        }
+
+        afterText = afterText.replace(/Dialogue is powered by AI[\s\S]*$/i, '').trim();
+        const hasNewCoachReply = afterText.length > 15;
+        const currentTurn = numSent + 1;
+
+        // Build structured conversation history for AI prompt
+        const historyParts = [];
+        for (let i = 0; i < numSent; i++) {
+            historyParts.push(`Student (Turn ${i + 1}): ${sentDialogueAnswers[i]}`);
+        }
+        if (hasNewCoachReply) {
+            historyParts.push(`AI Coach (Turn ${currentTurn}): ${afterText}`);
+        }
+        const allContextText = historyParts.join('\n\n');
+
+        return {
+            isWaitingForStudent: hasNewCoachReply,
+            currentTurnNumber: currentTurn,
+            latestCoachMessage: hasNewCoachReply ? afterText : '',
+            allContextText
+        };
     }
 
     function extractLatestCoachMessage() {
         const conv = getDialogueConversationState();
-        if (conv.latestCoachMessage && conv.latestCoachMessage.length > 15) {
-            return conv.latestCoachMessage;
-        }
-        return '';
+        return conv.latestCoachMessage || '';
     }
 
     function extractFullDialogueContext() {
         const conv = getDialogueConversationState();
-        if (conv.allContextText && conv.allContextText.length > 20) {
-            return conv.allContextText;
-        }
-        return getCleanDialogueText();
+        return conv.allContextText || getCleanDialogueText();
     }
 
     function findChatInputField() {
@@ -1670,10 +1621,9 @@
             return;
         }
 
-        // Stage 2: Active Dialogue Chat (Multi-Turn Conversation State Machine)
+        // Stage 2: Active Dialogue Chat
         const chatInput = findChatInputField();
         if (!chatInput) {
-            // If chat input disappeared and Next button is present, advance!
             const nextBtn = findNextItemButton();
             if (nextBtn && isDialogueCompletedPage()) {
                 triggerClick(nextBtn);
@@ -1693,14 +1643,21 @@
             return;
         }
 
-        // Check if last message was sent by student and coach has not yet replied
-        if (conv.timeline.length > 0 && !conv.isWaitingForStudent) {
-            showStatus("Response sent! Waiting for Coursera AI coach reply...");
+        // If coach has not yet replied to our previous answer, wait
+        if (!conv.isWaitingForStudent) {
+            showStatus(`Response sent (Turn ${answeredStudentTurns})! Waiting for Coursera AI coach reply...`);
+            return;
+        }
+
+        // Turn Guard: If this turn was already answered, wait for coach's next reply
+        const currentTurn = conv.currentTurnNumber;
+        if (answeredStudentTurns >= currentTurn) {
+            showStatus(`Response sent (Turn ${currentTurn})! Waiting for coach's reply...`);
             return;
         }
 
         if (isGeneratingDialogueResponse) {
-            showStatus("Thinking and drafting humanized response for AI coach...");
+            showStatus(`Thinking and drafting response for AI coach (Turn ${currentTurn})...`);
             return;
         }
 
@@ -1720,8 +1677,9 @@
             const summaryCmd = "Generate final session summary";
             if (lastAnsweredDialogueQuestion !== summaryCmd) {
                 lastAnsweredDialogueQuestion = summaryCmd;
+                answeredStudentTurns = currentTurn;
                 lastDialogueMessageSentTime = Date.now();
-                addLog("Coach requested session summary. Typing 'Generate final session summary'...", "info");
+                addLog("Coach requested session summary. Submitting 'Generate final session summary'...", "info");
                 showStatus("Submitting 'Generate final session summary' to coach...");
                 
                 setReactInputValue(chatInput, summaryCmd);
@@ -1745,22 +1703,13 @@
             }
         }
 
-        const normalizedQuestion = latestCoachMsg.replace(/\s+/g, ' ').trim();
-        // Don't answer the exact same turn repeatedly
-        if (lastAnsweredDialogueQuestion === normalizedQuestion) {
-            showStatus("Response sent! Waiting for coach's next reply...");
-            return;
-        }
-
         if (!hasAnyApiKey()) {
             showStatus("Dialogue scenario loaded! Add an API key in the AutoPilot popup to auto-respond.");
             return;
         }
 
         isGeneratingDialogueResponse = true;
-        const studentTurnsCount = conv.timeline.filter(t => t.type === 'student').length;
-        const currentTurn = Math.max(dialogueTurnCount, studentTurnsCount + 1);
-        const dialogueContext = conv.allContextText;
+        const dialogueContext = conv.allContextText || `AI Coach: ${latestCoachMsg}`;
 
         addLog(`AI Coach Turn ${currentTurn}: "${latestCoachMsg.slice(0, 75)}..." Generating student response...`, "info");
         showStatus(`Answering AI Coach (Turn ${currentTurn})...`);
@@ -1805,12 +1754,10 @@ CRITICAL RULES FOR YOUR RESPONSE (STRICT COMPLIANCE):
                         await new Promise(r => setTimeout(r, 600));
 
                         const sendBtn = findChatSendButton(inputEl);
-                        let sent = false;
                         if (sendBtn) {
                             sendBtn.disabled = false;
                             sendBtn.removeAttribute('aria-disabled');
                             triggerClick(sendBtn);
-                            sent = true;
                         }
                         
                         await new Promise(r => setTimeout(r, 400));
@@ -1824,11 +1771,12 @@ CRITICAL RULES FOR YOUR RESPONSE (STRICT COMPLIANCE):
                         }
 
                         sentDialogueAnswers.push(answer);
-                        lastAnsweredDialogueQuestion = normalizedQuestion;
+                        answeredStudentTurns = currentTurn;
+                        lastAnsweredDialogueQuestion = latestCoachMsg.replace(/\s+/g, ' ').trim();
                         lastDialogueMessageSentTime = Date.now();
                         dialogueTurnCount = currentTurn + 1;
                         addLog(`Sent humanized response to Coursera AI (Turn ${currentTurn})!`, "success");
-                        showStatus("Response sent! Waiting for coach's reply...");
+                        showStatus(`Response sent (Turn ${currentTurn})! Waiting for coach's reply...`);
                     }
                 } else {
                     addLog(`Dialogue AI error: ${response?.error || 'No response'}`, "warn");
@@ -2798,6 +2746,7 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
                 lastDialogueMessageSentTime = 0;
                 dialogueTurnCount = 1;
                 sentDialogueAnswers = [];
+                answeredStudentTurns = 0;
                 
                 // Cleanly reset quiz session whenever user or autopilot navigates to a new item
                 quizSession.url = window.location.href;
