@@ -1112,7 +1112,7 @@
         if (u.includes('/coach/') || u.includes('/dialogue') || u.includes('/guided-discussion')) {
             return 'dialogue';
         }
-        if (u.includes('/discussionprompt/')) {
+        if (u.includes('/discussionprompt/') || u.includes('/prompt/') || u.includes('/discussions/')) {
             return 'discussion';
         }
         return 'other';
@@ -1395,9 +1395,41 @@
         }
     }
 
+    function isDiscussionPromptItem(url = window.location.href) {
+        if (window.CourseraDiscussionRunner && typeof window.CourseraDiscussionRunner.isDiscussionPromptItem === 'function') {
+            return window.CourseraDiscussionRunner.isDiscussionPromptItem(url);
+        }
+        try {
+            const u = new URL(url);
+            const p = u.pathname.toLowerCase();
+            if (p.includes('/discussionprompt/') || p.includes('/prompt/') || p.includes('/discussions/')) {
+                return true;
+            }
+        } catch (e) {}
+        return false;
+    }
+
+    async function handleDiscussionPromptItem() {
+        if (window.CourseraDiscussionRunner && typeof window.CourseraDiscussionRunner.handleDiscussionPrompt === 'function') {
+            return await window.CourseraDiscussionRunner.handleDiscussionPrompt({
+                showStatus,
+                addLog,
+                triggerClick,
+                findNextItemButton,
+                findNextPendingSidebarItem,
+                findNextTargetSidebarItem,
+                getCourseSlugFromUrl,
+                hasAnyApiKey,
+                isCurrentItemCompletedInSidebar,
+                autoNavigate: state.autoNavigate,
+                focusMode: state.focusMode
+            });
+        }
+    }
+
     function getQuizInputs() {
-        // STRICT GUARD: If currently on an AI coach / dialogue item, never treat chat as a quiz!
-        if (isDialogueOrCoachItem()) return [];
+        // STRICT GUARD: If currently on an AI coach / dialogue item or discussion prompt, never treat as a quiz!
+        if (isDialogueOrCoachItem() || isDiscussionPromptItem()) return [];
 
         return Array.from(
             document.querySelectorAll('input[type="radio"], input[type="checkbox"], textarea, input:not([type="hidden"]):not([type="radio"]):not([type="checkbox"]):not([type="submit"]):not([type="button"]):not([type="file"])')
@@ -2402,7 +2434,8 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
             const video = document.querySelector('video');
             const isVideoActivelyPlaying = video && !video.paused && !video.ended && (video.readyState >= 3);
             const isDialogueActive = isDialogueOrCoachItem() && !isDialogueCompletedPage() && (Date.now() - lastDialogueMessageSentTime < 90000);
-            if (timeOnPage > 120000 && !isVideoActivelyPlaying && !isDialogueActive && (Date.now() - lastNavTime > 4000)) {
+            const isDiscussionActive = isDiscussionPromptItem() && (timeOnPage < 90000);
+            if (timeOnPage > 120000 && !isVideoActivelyPlaying && !isDialogueActive && !isDiscussionActive && (Date.now() - lastNavTime > 4000)) {
                 addLog("AutoPilot Watchdog: Stuck on same page for >2 minutes. Auto-skipping to next item...", "warn");
                 showStatus("Stuck for >2 min! Auto-skipping to next item...");
                 lastNavTime = Date.now();
@@ -2600,6 +2633,11 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
             // 6. COURSERA AI COACH / DIALOGUE HANDLING (EVALUATED BEFORE QUIZZES TO PREVENT HIJACK!)
             else if (isDialogueOrCoachItem()) {
                 handleDialogueItem();
+                return;
+            }
+            // 6.5. COURSERA DISCUSSION PROMPTS (ACADEMIC PARAGRAPH RESPONSE & AUTO-SUBMIT)
+            else if (isDiscussionPromptItem()) {
+                handleDiscussionPromptItem();
                 return;
             }
             // 7. QUIZ / ASSIGNMENT / EXAM HANDLING (STRICT ISOLATION: NEVER FALL INTO READING AUTO-NEXT!)
