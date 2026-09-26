@@ -38,7 +38,7 @@
     },
     {
       "matches": ["*://*.coursera.org/*"],
-      "js": ["content.js"],
+      "js": ["dialogue_runner.js", "content.js"],
       "run_at": "document_start"
     }
   ],
