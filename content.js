@@ -1231,21 +1231,42 @@
         return false;
     }
 
+    function getDialogueConversationContainer() {
+        // Priority 1: Container relative to active chat input
+        const chatInput = findChatInputField();
+        if (chatInput) {
+            const parent = chatInput.closest('[role="main"], [data-testid="coach-conversation"], .cds-FullscreenDialog-scrollContainer, main, [class*="content" i]');
+            if (parent) return parent;
+        }
+        // Priority 2: Semantic main or role=main
+        const mainEl = document.querySelector('main, [role="main"], [data-testid="coach-conversation"], .cds-FullscreenDialog-scrollContainer');
+        if (mainEl) return mainEl;
+        return document.body;
+    }
+
+    function getCleanDialogueText() {
+        const container = getDialogueConversationContainer();
+        const clone = container.cloneNode(true);
+        // Explicitly remove sidebar, drawer, navigation, and item navigation links so they never contaminate the text
+        clone.querySelectorAll('nav, aside, header, [role="navigation"], [class*="navigation" i], [class*="drawer" i], [class*="sidebar" i], [class*="CourseItem" i], [data-testid*="nav" i]').forEach(el => el.remove());
+        return (clone.innerText || clone.textContent || '').trim();
+    }
+
     function extractLatestCoachMessageFromText(fullText, sentMessages = []) {
         if (!fullText) return '';
         let clean = fullText;
 
-        // 1. Strip composer boilerplate and footer info
-        clean = clean.replace(/Dialogue is powered by AI[\s\S]*$/i, '');
-        clean = clean.replace(/Send a message[\s\S]*$/i, '');
-        clean = clean.replace(/End Dialogue/gi, '');
-        clean = clean.replace(/I'm stuck/gi, '');
-
-        // 2. Strip everything before "Start Dialogue" if present (removes intro / objectives)
+        // 1. Strip intro / objectives before "Start Dialogue" if present
         if (/Start Dialogue/i.test(clean)) {
             const parts = clean.split(/Start Dialogue["']?/i);
             clean = parts[parts.length - 1];
         }
+
+        // 2. Strip bottom composer / footer metadata
+        clean = clean.replace(/Dialogue is powered by AI[\s\S]*$/i, '');
+        clean = clean.replace(/Send a message\s*$/i, '');
+        clean = clean.replace(/End Dialogue\s*$/i, '');
+        clean = clean.replace(/I'm stuck\s*$/i, '');
 
         // 3. Split into blocks by double newline or distinct paragraphs
         let blocks = clean.split(/\n\s*\n/)
@@ -1266,7 +1287,10 @@
                     if (!sent) return false;
                     const normSent = sent.replace(/\s+/g, ' ').trim().toLowerCase();
                     const normB = b.toLowerCase();
-                    return normB === normSent || normB.includes(normSent) || normSent.includes(normB);
+                    if (normB === normSent) return true;
+                    if (normSent.length > 25 && normB.includes(normSent.slice(0, 30))) return true;
+                    if (normB.length > 25 && normSent.includes(normB.slice(0, 30))) return true;
+                    return false;
                 });
             });
         }
@@ -1276,8 +1300,10 @@
             const low = b.toLowerCase();
             return !low.includes("when you're ready, click") &&
                    !low.includes("welcome! during this dialogue") &&
+                   !low.includes("welcome! in this dialogue") &&
                    !low.includes("here's what we'll cover") &&
                    !low.includes("dialogue is powered by ai") &&
+                   !low.includes("send a message") &&
                    !low.includes("today's goals") &&
                    !low.includes("practice quiz") &&
                    !low.includes("digital foundations");
@@ -1286,6 +1312,14 @@
         if (blocks.length > 0) {
             return blocks[blocks.length - 1];
         }
+
+        // 6. Resilient Fallback: sentence ending in ?
+        const questionMatches = clean.match(/[^.!?\n]+[?]/g);
+        if (questionMatches && questionMatches.length > 0) {
+            const candidate = questionMatches[questionMatches.length - 1].replace(/\s+/g, ' ').trim();
+            if (candidate.length > 20) return candidate;
+        }
+
         return '';
     }
 
@@ -1293,9 +1327,9 @@
         if (!fullText) return '';
         let clean = fullText;
         clean = clean.replace(/Dialogue is powered by AI[\s\S]*$/i, '');
-        clean = clean.replace(/Send a message[\s\S]*$/i, '');
-        clean = clean.replace(/End Dialogue/gi, '');
-        clean = clean.replace(/I'm stuck/gi, '');
+        clean = clean.replace(/Send a message\s*$/i, '');
+        clean = clean.replace(/End Dialogue\s*$/i, '');
+        clean = clean.replace(/I'm stuck\s*$/i, '');
 
         if (/Start Dialogue/i.test(clean)) {
             const parts = clean.split(/Start Dialogue["']?/i);
@@ -1310,12 +1344,11 @@
     }
 
     function extractLatestCoachMessage() {
-        const mainContainer = document.querySelector('[role="main"], [data-testid="coach-conversation"], [class*="dialogue" i], [class*="conversation" i], .cds-FullscreenDialog-scrollContainer') || document.body;
-
-        // STRATEGY 1: DOM Structure relative to Coach Action Icons (Copy, Thumbs Up, Thumbs Down)
+        // STRATEGY 1: DOM Structure relative to Feedback / Action Icons (Thumbs Up, Thumbs Down, Copy)
         try {
-            const actionBtns = Array.from(mainContainer.querySelectorAll('button, [role="button"]')).filter(b => {
-                if (b.closest('aside, nav, header, [class*="composer" i], [class*="input" i]')) return false;
+            const container = getDialogueConversationContainer();
+            const actionBtns = Array.from(container.querySelectorAll('button, [role="button"]')).filter(b => {
+                if (b.closest('aside, nav, header, [class*="composer" i], [class*="input" i], [role="navigation"]')) return false;
                 const aria = (b.getAttribute('aria-label') || '').toLowerCase();
                 const title = (b.getAttribute('title') || '').toLowerCase();
                 const hasSvg = !!b.querySelector('svg');
@@ -1330,9 +1363,13 @@
                     while (prev) {
                         const clone = prev.cloneNode(true);
                         clone.querySelectorAll('button, svg, textarea, input, [role="button"]').forEach(el => el.remove());
-                        const text = (clone.innerText || clone.textContent || '').replace(/\s+/g, ' ').trim();
-                        if (text.length > 15 && !text.toLowerCase().includes("dialogue is powered by ai") && !text.toLowerCase().includes("when you're ready, click")) {
-                            return text;
+                        let text = (clone.innerText || clone.textContent || '').replace(/\s+/g, ' ').trim();
+                        if (text.length > 15 && !text.toLowerCase().includes("dialogue is powered by ai")) {
+                            if (/Start Dialogue/i.test(text)) {
+                                const parts = text.split(/Start Dialogue["']?/i);
+                                text = parts[parts.length - 1].replace(/\s+/g, ' ').trim();
+                            }
+                            if (text.length > 15) return text;
                         }
                         prev = prev.previousElementSibling;
                     }
@@ -1342,9 +1379,9 @@
             console.warn('[AutoPilot] Strategy 1 extraction error:', e);
         }
 
-        // STRATEGY 2: Structured text stream parsing (Proven against Coursera CDS layout)
+        // STRATEGY 2: Structured clean text stream parsing
         try {
-            const fullText = (mainContainer.innerText || mainContainer.textContent || '').trim();
+            const fullText = getCleanDialogueText();
             const textResult = extractLatestCoachMessageFromText(fullText, sentDialogueAnswers);
             if (textResult && textResult.length > 15) {
                 return textResult;
@@ -1357,8 +1394,7 @@
     }
 
     function extractFullDialogueContext() {
-        const mainContainer = document.querySelector('[role="main"], [data-testid="coach-conversation"], [class*="dialogue" i], [class*="conversation" i], .cds-FullscreenDialog-scrollContainer') || document.body;
-        const fullText = (mainContainer.innerText || mainContainer.textContent || '').trim();
+        const fullText = getCleanDialogueText();
         return extractFullDialogueContextFromText(fullText);
     }
 

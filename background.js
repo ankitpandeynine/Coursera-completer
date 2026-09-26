@@ -68,7 +68,7 @@ async function discoverGeminiModels(apiKey) {
 }
 
 async function getGeminiCandidateModels(apiKey) {
-    // Verified production models in priority order (NO non-existent 2.5-flash or flash-lite)
+    // Verified production models in priority order - gemini-1.5-flash is 100% stable & universal
     const priorityFallbacks = [
         'models/gemini-1.5-flash',
         'models/gemini-1.5-flash-latest',
@@ -80,33 +80,6 @@ async function getGeminiCandidateModels(apiKey) {
         'models/gemini-1.0-pro',
         'models/gemini-pro'
     ];
-
-    try {
-        const discovered = await discoverGeminiModels(apiKey);
-        if (discovered && discovered.length > 0) {
-            const sorted = [];
-            const priorityPatterns = [
-                'gemini-1.5-flash',
-                'gemini-2.0-flash',
-                'gemini-1.5-flash-8b',
-                'gemini-1.5-pro',
-                'gemini-1.0-pro',
-                'gemini-pro'
-            ];
-
-            for (const pat of priorityPatterns) {
-                const matches = discovered.filter(m => m.includes(pat));
-                for (const m of matches) {
-                    if (!sorted.includes(m)) sorted.push(m);
-                }
-            }
-            for (const m of discovered) {
-                if (!sorted.includes(m)) sorted.push(m);
-            }
-            if (sorted.length > 0) return sorted;
-        }
-    } catch (e) {}
-
     return priorityFallbacks;
 }
 
@@ -169,16 +142,18 @@ async function callGemini(apiKey, prompt) {
         }
     }
 
+    const isJsonPrompt = prompt.includes('JSON') || prompt.includes('Output ONLY a valid JSON array');
+
     for (const model of orderedModels) {
         try {
             const shortModel = model.replace('models/', '');
-            console.log(`[AutoPilot] Querying Gemini model: ${shortModel}`);
+            console.log(`[AutoPilot] Directly querying Gemini model: ${shortModel} (JSON mode: ${isJsonPrompt})`);
 
-            // Try with JSON response mode first
-            let res = await callSingleGemini(model, apiKey, prompt, true);
+            // Only use JSON response mode for quiz prompts that explicitly request JSON
+            let res = await callSingleGemini(model, apiKey, prompt, isJsonPrompt);
 
-            // If 400 (some models don't support responseMimeType in generationConfig), retry with plain prompt
-            if (!res.ok && res.status === 400) {
+            // If 400 and we attempted JSON mode, retry with plain text prompt
+            if (!res.ok && res.status === 400 && isJsonPrompt) {
                 res = await callSingleGemini(model, apiKey, prompt, false);
             }
 
@@ -476,27 +451,14 @@ async function discoverNvidiaModels(apiKey) {
 
 async function getNvidiaCandidateModels(apiKey) {
     const defaultList = [
+        'meta/llama-3.3-70b-instruct',
         'meta/llama-3.1-8b-instruct',
         'meta/llama-3.1-70b-instruct',
-        'meta/llama-3.3-70b-instruct',
         'nvidia/llama-3.1-nemotron-70b-instruct',
         'mistralai/mistral-large-2-instruct',
         'deepseek-ai/deepseek-r1',
         'qwen/qwen2.5-72b-instruct'
     ];
-    try {
-        const discovered = await discoverNvidiaModels(apiKey);
-        if (discovered && discovered.length > 0) {
-            const sorted = [];
-            for (const m of defaultList) {
-                if (discovered.includes(m)) sorted.push(m);
-            }
-            for (const m of discovered) {
-                if (!sorted.includes(m)) sorted.push(m);
-            }
-            if (sorted.length > 0) return sorted;
-        }
-    } catch (e) {}
     return defaultList;
 }
 
@@ -504,15 +466,30 @@ async function callNvidia(apiKey, prompt) {
     const candidateModels = await getNvidiaCandidateModels(apiKey);
     let lastError = null;
 
-    for (const model of candidateModels) {
+    // Check if we have a known cached working model that is NOT throttled
+    const storage = await chrome.storage.local.get(['cachedNvidiaModel']);
+    let orderedModels = [...candidateModels];
+    if (storage.cachedNvidiaModel && orderedModels.includes(storage.cachedNvidiaModel)) {
+        orderedModels = [storage.cachedNvidiaModel, ...orderedModels.filter(m => m !== storage.cachedNvidiaModel)];
+    }
+
+    const isJsonPrompt = prompt.includes('JSON') || prompt.includes('Output ONLY a valid JSON array');
+    const systemPrompt = isJsonPrompt
+        ? 'You are an expert academic quiz solver. Output ONLY a valid JSON array of objects without Markdown formatting.'
+        : 'You are a smart, articulate university student participating in a Coursera learning dialogue. Answer thoughtfully, directly, and naturally in plain conversational text.';
+
+    for (const model of orderedModels) {
         try {
+            const shortName = model.split('/')[1] || model;
+            console.log(`[AutoPilot] Directly querying NVIDIA model: ${shortName} (JSON mode: ${isJsonPrompt})`);
+
             const url = 'https://integrate.api.nvidia.com/v1/chat/completions';
             const bodyPayload = {
                 model: model,
                 messages: [
                     {
                         role: 'system',
-                        content: 'You are an expert academic quiz solver. Output ONLY a valid JSON array of objects without Markdown formatting.'
+                        content: systemPrompt
                     },
                     {
                         role: 'user',
@@ -526,7 +503,7 @@ async function callNvidia(apiKey, prompt) {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${apiKey}`
+                    'Authorization': `Bearer ${apiKey.trim()}`
                 },
                 signal: AbortSignal.timeout(20000),
                 body: JSON.stringify(bodyPayload)
@@ -538,7 +515,6 @@ async function callNvidia(apiKey, prompt) {
             if (response.ok) {
                 const text = data.choices?.[0]?.message?.content;
                 if (text) {
-                    const shortName = model.split('/')[1] || model;
                     await chrome.storage.local.set({ cachedNvidiaModel: model });
                     return { ok: true, text, modelUsed: `NVIDIA (${shortName})` };
                 }
@@ -547,9 +523,10 @@ async function callNvidia(apiKey, prompt) {
             lastError = { status, message: data.error?.message || `HTTP ${status}` };
 
             // Crucial fix: HTTP 410 (Gone), 404 (Not Found), 422 (Unprocessable), 429 (Rate Limit), 500, 503
-            // MUST ALL continue to next model! NEVER break on 410!
             if (status === 410 || status === 404 || status === 422 || status === 429 || status === 500 || status === 503) {
-                const shortName = model.split('/')[1] || model;
+                if (status === 410 || status === 404) {
+                    await chrome.storage.local.remove(['cachedNvidiaModel']);
+                }
                 console.warn(`[AutoPilot] NVIDIA model ${shortName} returned ${status}. Switching to next model...`);
                 await appendLog(`NVIDIA ${shortName} (${status}). Switching to next model...`, 'info');
                 continue;
