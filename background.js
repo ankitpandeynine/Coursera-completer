@@ -38,43 +38,47 @@ const PROVIDERS = {
 // ==========================================
 
 async function discoverGeminiModels(apiKey) {
-    try {
-        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`, {
-            signal: AbortSignal.timeout(10000)
-        });
+    const cleanApiKey = (apiKey || '').trim().replace(/^["']|["']$/g, '');
+    if (!cleanApiKey) return null;
 
-        if (!res.ok) {
-            console.warn(`[AutoPilot] Gemini model discovery returned HTTP ${res.status}`);
-            return null;
+    const versions = ['v1beta', 'v1'];
+    for (const ver of versions) {
+        try {
+            const res = await fetch(`https://generativelanguage.googleapis.com/${ver}/models?key=${encodeURIComponent(cleanApiKey)}`, {
+                headers: { 'x-goog-api-key': cleanApiKey },
+                signal: AbortSignal.timeout(10000)
+            });
+
+            if (!res.ok) {
+                console.warn(`[AutoPilot] Gemini model discovery on ${ver} returned HTTP ${res.status}`);
+                continue;
+            }
+
+            const data = await res.json();
+            const models = (data.models || [])
+                .filter(m => m.supportedGenerationMethods && m.supportedGenerationMethods.includes("generateContent"))
+                .map(m => m.name.startsWith('models/') ? m.name : `models/${m.name}`);
+
+            if (models.length > 0) return models;
+        } catch (e) {
+            console.warn(`[AutoPilot] Gemini model discovery on ${ver} error:`, e);
         }
-
-        const data = await res.json();
-        const models = (data.models || [])
-            .filter(m => m.supportedGenerationMethods && m.supportedGenerationMethods.includes("generateContent"))
-            .map(m => m.name.startsWith('models/') ? m.name : `models/${m.name}`);
-
-        if (models.length > 0) return models;
-    } catch (e) {
-        console.warn('[AutoPilot] Gemini model discovery error:', e);
     }
     return null;
 }
 
 async function getGeminiCandidateModels(apiKey) {
-    // High-quota, ultra-reliable models prioritized first:
-    // 1. gemini-1.5-flash: 15 RPM, 1,000,000 TPM, 1,500 RPD (Standard free tier workhorse)
-    // 2. gemini-2.0-flash: 10-15 RPM (High intelligence, fast)
-    // 3. gemini-1.5-flash-8b: Fast throughput, separate quota pool
-    // 4. gemini-2.0-flash-lite: Lightweight preview
-    // 5. gemini-1.5-pro: High reasoning
-    // 6. gemini-2.5-flash: Experimental preview (fallback only)
+    // Verified production models in priority order (NO non-existent 2.5-flash or flash-lite)
     const priorityFallbacks = [
         'models/gemini-1.5-flash',
+        'models/gemini-1.5-flash-latest',
         'models/gemini-2.0-flash',
+        'models/gemini-2.0-flash-exp',
         'models/gemini-1.5-flash-8b',
-        'models/gemini-2.0-flash-lite',
         'models/gemini-1.5-pro',
-        'models/gemini-2.5-flash'
+        'models/gemini-1.5-pro-latest',
+        'models/gemini-1.0-pro',
+        'models/gemini-pro'
     ];
 
     try {
@@ -85,9 +89,9 @@ async function getGeminiCandidateModels(apiKey) {
                 'gemini-1.5-flash',
                 'gemini-2.0-flash',
                 'gemini-1.5-flash-8b',
-                'gemini-2.0-flash-lite',
                 'gemini-1.5-pro',
-                'gemini-2.5-flash'
+                'gemini-1.0-pro',
+                'gemini-pro'
             ];
 
             for (const pat of priorityPatterns) {
@@ -106,9 +110,11 @@ async function getGeminiCandidateModels(apiKey) {
     return priorityFallbacks;
 }
 
-async function callSingleGemini(modelName, apiKey, prompt, useJsonMime = true) {
-    const cleanModel = modelName.startsWith('models/') ? modelName : `models/${modelName}`;
-    const url = `https://generativelanguage.googleapis.com/v1beta/${cleanModel}:generateContent?key=${apiKey}`;
+async function callSingleGemini(modelName, apiKey, prompt, useJsonMime = true, apiVersion = 'v1beta') {
+    const cleanApiKey = (apiKey || '').trim().replace(/^["']|["']$/g, '');
+    const rawModel = modelName.replace(/^models\//, '');
+    const cleanModel = `models/${rawModel}`;
+    const url = `https://generativelanguage.googleapis.com/${apiVersion}/${cleanModel}:generateContent?key=${encodeURIComponent(cleanApiKey)}`;
     
     const bodyPayload = {
         contents: [{ parts: [{ text: prompt }] }],
@@ -121,17 +127,30 @@ async function callSingleGemini(modelName, apiKey, prompt, useJsonMime = true) {
         bodyPayload.generationConfig.responseMimeType = "application/json";
     }
 
-    const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: AbortSignal.timeout(25000),
-        body: JSON.stringify(bodyPayload)
-    });
+    try {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json',
+                'x-goog-api-key': cleanApiKey
+            },
+            signal: AbortSignal.timeout(25000),
+            body: JSON.stringify(bodyPayload)
+        });
 
-    const status = response.status;
-    const data = await response.json().catch(() => ({}));
+        const status = response.status;
+        const data = await response.json().catch(() => ({}));
 
-    return { ok: response.ok, status, data };
+        // If 404 on v1beta, try fallback to v1 before giving up on this model
+        if (!response.ok && status === 404 && apiVersion === 'v1beta') {
+            console.log(`[AutoPilot] Gemini model ${cleanModel} got 404 on v1beta, attempting v1 fallback...`);
+            return await callSingleGemini(modelName, apiKey, prompt, useJsonMime, 'v1');
+        }
+
+        return { ok: response.ok, status, data };
+    } catch (e) {
+        return { ok: false, status: 0, data: { error: { message: e.message } } };
+    }
 }
 
 async function callGemini(apiKey, prompt) {
@@ -142,9 +161,11 @@ async function callGemini(apiKey, prompt) {
     const storage = await chrome.storage.local.get(['cachedGeminiModel']);
     let orderedModels = [...candidateModels];
     if (storage.cachedGeminiModel && orderedModels.includes(storage.cachedGeminiModel)) {
-        // Put cached working model first unless it's 2.5-flash which has low quota
-        if (!storage.cachedGeminiModel.includes('2.5-flash')) {
+        // Only prioritize if it's an authentic flash or pro model (avoid non-existent models)
+        if (!storage.cachedGeminiModel.includes('2.5-flash') && !storage.cachedGeminiModel.includes('flash-lite')) {
             orderedModels = [storage.cachedGeminiModel, ...orderedModels.filter(m => m !== storage.cachedGeminiModel)];
+        } else {
+            await chrome.storage.local.remove(['cachedGeminiModel']);
         }
     }
 
@@ -174,6 +195,10 @@ async function callGemini(apiKey, prompt) {
             // Crucial fix: HTTP 429 (Quota limit on this specific model), 404 (Not found), 500, 503 (Server error)
             // MUST fail over to the next Gemini model immediately!
             if (res.status === 429 || res.status === 404 || res.status === 500 || res.status === 503) {
+                if (res.status === 404) {
+                    // Purge stale or invalid cached model immediately!
+                    await chrome.storage.local.remove(['cachedGeminiModel']);
+                }
                 console.warn(`[AutoPilot] Gemini model ${shortModel} returned HTTP ${res.status}. Failing over to next Gemini model...`);
                 await appendLog(`Gemini ${shortModel} (${res.status}). Switching to backup Gemini model...`, 'info');
                 continue;
@@ -583,30 +608,51 @@ async function clearCooldown(providerId) {
 }
 
 // ==========================================
-// MULTI-PROVIDER FAILOVER DISPATCHER
+// MULTI-PROVIDER FAILOVER & DUAL-COURSE DISPATCHER
 // ==========================================
 
-// In-flight request lock to prevent duplicate concurrent network calls
-let activeAIRequestPromise = null;
+// Active course assignments map: courseSlug -> assignedProviderId
+const activeCourseAI = new Map();
 
-async function handleAIRequest(request) {
-    if (activeAIRequestPromise) {
-        console.log('[AutoPilot BG] AI request already in-flight. Joining active request...');
-        return activeAIRequestPromise;
+// In-flight request locks PER COURSE to allow concurrent execution of 2 courses without mutual blocking
+const activeAIRequestsByCourse = new Map();
+
+function extractCourseSlug(url) {
+    if (!url) return null;
+    try {
+        const parsed = new URL(url);
+        const match = parsed.pathname.match(/\/learn\/([^/]+)/i);
+        if (match && match[1]) return match[1].toLowerCase();
+        const teachMatch = parsed.pathname.match(/\/teach\/([^/]+)/i);
+        if (teachMatch && teachMatch[1]) return teachMatch[1].toLowerCase();
+        const pathParts = parsed.pathname.split('/').filter(Boolean);
+        if (pathParts.length > 0 && pathParts[0] !== 'home') return pathParts[0].toLowerCase();
+    } catch (e) {}
+    return null;
+}
+
+async function handleAIRequest(request, sender = null) {
+    const tabUrl = sender?.tab?.url || '';
+    const courseSlug = (request.courseSlug || extractCourseSlug(tabUrl) || 'default_course').toLowerCase();
+
+    if (activeAIRequestsByCourse.has(courseSlug)) {
+        console.log(`[AutoPilot BG] AI request for course '${courseSlug}' already in-flight. Joining active request...`);
+        return activeAIRequestsByCourse.get(courseSlug);
     }
 
-    activeAIRequestPromise = (async () => {
+    const promise = (async () => {
         try {
-            return await executeAIRequest(request);
+            return await executeAIRequest(request, courseSlug);
         } finally {
-            activeAIRequestPromise = null;
+            activeAIRequestsByCourse.delete(courseSlug);
         }
     })();
 
-    return activeAIRequestPromise;
+    activeAIRequestsByCourse.set(courseSlug, promise);
+    return promise;
 }
 
-async function executeAIRequest(request) {
+async function executeAIRequest(request, courseSlug = 'default_course') {
     const prompt = request.prompt;
     if (!prompt) {
         return { success: false, error: "No prompt provided to AI dispatcher." };
@@ -615,7 +661,8 @@ async function executeAIRequest(request) {
     // Retrieve all stored settings and keys
     const storage = await chrome.storage.local.get([
         'geminiApiKey', 'groqApiKey', 'openRouterApiKey', 'nvidiaApiKey',
-        'preferredProvider', 'providerCooldowns'
+        'preferredProvider', 'secondaryProvider', 'dualCourseMultiAI',
+        'providerCooldowns'
     ]);
 
     const keys = {
@@ -627,22 +674,76 @@ async function executeAIRequest(request) {
 
     const cooldowns = storage.providerCooldowns || {};
 
-    // Build candidate order
     const defaultOrder = ['groq', 'gemini', 'openrouter', 'nvidia'];
-    const pref = storage.preferredProvider;
-    let candidateOrder = (pref && pref !== 'auto' && defaultOrder.includes(pref))
-        ? [pref, ...defaultOrder.filter(p => p !== pref)]
-        : defaultOrder;
+    const configuredProviders = defaultOrder.filter(pId => !!keys[pId]);
 
-    // Filter to providers that have an API key configured
-    const availableProviders = candidateOrder.filter(pId => !!keys[pId]);
-
-    if (availableProviders.length === 0) {
+    if (configuredProviders.length === 0) {
         return {
             success: false,
             error: "No AI API keys configured. Please add a free key (Groq, Gemini, OpenRouter, or NVIDIA) in the extension popup."
         };
     }
+
+    const dualCourseMultiAI = storage.dualCourseMultiAI !== undefined ? !!storage.dualCourseMultiAI : true;
+    const pref = storage.preferredProvider || 'auto';
+    const secondaryPref = storage.secondaryProvider || 'auto';
+
+    let assignedProvider = null;
+
+    if (configuredProviders.length === 1 || !dualCourseMultiAI) {
+        // Single provider or dual mode disabled: use standard preferred provider
+        assignedProvider = (pref !== 'auto' && configuredProviders.includes(pref)) ? pref : configuredProviders[0];
+    } else {
+        // Dual-Course Multi-AI active dispatching:
+        // Ensure two different courses are assigned two distinct AI engines!
+        if (activeCourseAI.has(courseSlug)) {
+            const existingAssigned = activeCourseAI.get(courseSlug);
+            if (configuredProviders.includes(existingAssigned)) {
+                assignedProvider = existingAssigned;
+            }
+        }
+
+        if (!assignedProvider) {
+            // Find what other active courses are using
+            const otherAssignedProviders = [];
+            for (const [slug, pId] of activeCourseAI.entries()) {
+                if (slug !== courseSlug && configuredProviders.includes(pId)) {
+                    otherAssignedProviders.push(pId);
+                }
+            }
+
+            if (otherAssignedProviders.length === 0) {
+                // First active course: use preferredProvider if configured, otherwise 1st configured provider
+                assignedProvider = (pref !== 'auto' && configuredProviders.includes(pref))
+                    ? pref
+                    : configuredProviders[0];
+            } else {
+                // Second concurrent course: prioritize secondaryProvider if set and distinct
+                if (secondaryPref !== 'auto' && configuredProviders.includes(secondaryPref) && !otherAssignedProviders.includes(secondaryPref)) {
+                    assignedProvider = secondaryPref;
+                } else {
+                    // Pick a configured provider NOT used by the first course
+                    const distinctProvider = configuredProviders.find(p => !otherAssignedProviders.includes(p));
+                    assignedProvider = distinctProvider || configuredProviders[0];
+                }
+            }
+
+            activeCourseAI.set(courseSlug, assignedProvider);
+            // Save active course assignments to storage for popup display
+            chrome.storage.local.set({
+                activeCourseAssignments: Object.fromEntries(activeCourseAI)
+            });
+        }
+    }
+
+    // Build candidate order starting with assignedProvider, followed by others as failover
+    const candidateOrder = [assignedProvider, ...configuredProviders.filter(p => p !== assignedProvider)];
+
+    console.log(`[AutoPilot BG] Course '${courseSlug}' candidate AI order:`, candidateOrder);
+    await appendLog(`[${courseSlug}] Assigned Primary AI: ${PROVIDERS[assignedProvider].name}`, 'info');
+
+    // Filter to providers that have an API key configured
+    const availableProviders = candidateOrder.filter(pId => !!keys[pId]);
 
     // Check cooldown status
     const readyProviders = availableProviders.filter(pId => {
@@ -686,8 +787,8 @@ async function executeAIRequest(request) {
         const prov = PROVIDERS[pId];
         const key = keys[pId];
 
-        await appendLog(`Querying ${prov.name}...`, 'info');
-        console.log(`[AutoPilot] Querying AI Provider: ${prov.name}`);
+        await appendLog(`[${courseSlug}] Querying ${prov.name}...`, 'info');
+        console.log(`[AutoPilot] [${courseSlug}] Querying AI Provider: ${prov.name}`);
 
         try {
             const result = await prov.call(key, prompt);
@@ -696,12 +797,13 @@ async function executeAIRequest(request) {
                 // Success! Clear any existing cooldown for this provider
                 await clearCooldown(pId);
                 const modelLabel = result.modelUsed || prov.name;
-                await appendLog(`✓ Answer received from ${modelLabel}`, 'success');
+                await appendLog(`✓ [${courseSlug}] Answer received from ${modelLabel}`, 'success');
                 return {
                     success: true,
                     text: result.text,
                     provider: modelLabel,
-                    providerId: pId
+                    providerId: pId,
+                    courseSlug: courseSlug
                 };
             }
 
@@ -737,7 +839,7 @@ async function executeAIRequest(request) {
     // If all providers failed
     return {
         success: false,
-        error: `All available AI providers failed:\n${failureLogs.join('\n')}`
+        error: `All available AI providers failed for course [${courseSlug}]:\n${failureLogs.join('\n')}`
     };
 }
 
@@ -748,10 +850,18 @@ async function executeAIRequest(request) {
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.type === 'ASK_AI' || request.type === 'ASK_GEMINI') {
         (async () => {
-            const resp = await handleAIRequest(request);
+            const resp = await handleAIRequest(request, sender);
             sendResponse(resp);
         })();
         return true; // Keep message channel open for async response
+    }
+
+    if (request.type === 'CLEAR_COURSE_ASSIGNMENTS') {
+        activeCourseAI.clear();
+        chrome.storage.local.set({ activeCourseAssignments: {} }, () => {
+            sendResponse({ success: true });
+        });
+        return true;
     }
 
     if (request.type === 'RESET_COOLDOWNS') {

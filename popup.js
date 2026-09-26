@@ -48,6 +48,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Provider Selector & Keys
     const providerSelect = document.getElementById('providerSelect');
+    const dualCourseMultiAICB = document.getElementById('dualCourseMultiAICB');
+    const secondaryProviderSelect = document.getElementById('secondaryProviderSelect');
+    const secondaryProviderWrapper = document.getElementById('secondaryProviderWrapper');
+    const activeCoursesList = document.getElementById('activeCoursesList');
+    const resetCoursesBtn = document.getElementById('resetCoursesBtn');
+
     const toggleKeysBtn = document.getElementById('toggleKeysBtn');
     const keysDrawer = document.getElementById('keysDrawer');
     const keysArrow = document.getElementById('keysArrow');
@@ -156,6 +162,36 @@ document.addEventListener('DOMContentLoaded', () => {
                 chip.innerHTML = `<span>${providerNames[pId]}</span><span class="chip-state">● Ready</span>`;
             }
         });
+    }
+
+    // Render Active Courses & AI Assignments
+    function renderActiveCourses(assignments) {
+        if (!activeCoursesList) return;
+        if (!assignments || Object.keys(assignments).length === 0) {
+            activeCoursesList.innerHTML = `<div style="font-size: 10px; color: #6c757d; font-style: italic;">No concurrent courses active yet. Open Coursera courses in 2 tabs to run simultaneously!</div>`;
+            return;
+        }
+
+        const providerBadges = {
+            groq: '⚡ Groq (Llama 3.3)',
+            gemini: '🌟 Google Gemini',
+            openrouter: '🌐 OpenRouter',
+            nvidia: '🟢 NVIDIA NIM'
+        };
+
+        let html = '';
+        const entries = Object.entries(assignments);
+        entries.forEach(([slug, pId], index) => {
+            const cleanName = slug.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+            const badgeLabel = providerBadges[pId] || (pId.toUpperCase());
+            html += `
+                <div class="course-assignment-row">
+                    <span class="course-slug-label" title="${escapeHtml(slug)}"><strong>Course ${index + 1}:</strong> ${escapeHtml(cleanName)}</span>
+                    <span class="course-ai-badge">${escapeHtml(badgeLabel)}</span>
+                </div>
+            `;
+        });
+        activeCoursesList.innerHTML = html;
     }
 
     // Render Live AI Quiz Solutions
@@ -292,7 +328,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function refreshStorage() {
         chrome.storage.local.get([
-            'speedInjection', 'playbackSpeed', 'forceMode', 'preferredProvider', 'focusMode', 'strictCompletion',
+            'speedInjection', 'playbackSpeed', 'forceMode', 'preferredProvider', 'secondaryProvider', 'dualCourseMultiAI',
+            'activeCourseAssignments', 'focusMode', 'strictCompletion',
             'geminiApiKey', 'groqApiKey', 'openRouterApiKey', 'nvidiaApiKey',
             'autoSolve', 'bgPlay', 'autoNavigate',
             'activityLogs', 'lastGeminiQuizData', 'providerCooldowns'
@@ -313,6 +350,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (forceMethodSelect) forceMethodSelect.value = data.forceMode || 'hybrid';
             if (providerSelect) providerSelect.value = data.preferredProvider || 'auto';
+            if (secondaryProviderSelect) secondaryProviderSelect.value = data.secondaryProvider || 'gemini';
+
+            if (dualCourseMultiAICB) {
+                const isDual = data.dualCourseMultiAI !== undefined ? !!data.dualCourseMultiAI : true;
+                dualCourseMultiAICB.checked = isDual;
+                if (secondaryProviderWrapper) {
+                    secondaryProviderWrapper.style.opacity = isDual ? '1' : '0.45';
+                    secondaryProviderWrapper.style.pointerEvents = isDual ? 'auto' : 'none';
+                }
+            }
+
+            renderActiveCourses(data.activeCourseAssignments);
+
             if (focusModeSelect) focusModeSelect.value = data.focusMode || 'all';
             if (strictCompletionCB) strictCompletionCB.checked = data.strictCompletion !== undefined ? data.strictCompletion : true;
 
@@ -361,6 +411,23 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         if (changes.forceMode && forceMethodSelect) {
             forceMethodSelect.value = changes.forceMode.newValue || 'hybrid';
+        }
+        if (changes.preferredProvider && providerSelect) {
+            providerSelect.value = changes.preferredProvider.newValue || 'auto';
+        }
+        if (changes.secondaryProvider && secondaryProviderSelect) {
+            secondaryProviderSelect.value = changes.secondaryProvider.newValue || 'gemini';
+        }
+        if (changes.dualCourseMultiAI !== undefined && dualCourseMultiAICB) {
+            const isDual = !!changes.dualCourseMultiAI.newValue;
+            dualCourseMultiAICB.checked = isDual;
+            if (secondaryProviderWrapper) {
+                secondaryProviderWrapper.style.opacity = isDual ? '1' : '0.45';
+                secondaryProviderWrapper.style.pointerEvents = isDual ? 'auto' : 'none';
+            }
+        }
+        if (changes.activeCourseAssignments !== undefined) {
+            renderActiveCourses(changes.activeCourseAssignments.newValue);
         }
         if (changes.focusMode && focusModeSelect) {
             focusModeSelect.value = changes.focusMode.newValue || 'all';
@@ -437,6 +504,33 @@ document.addEventListener('DOMContentLoaded', () => {
     if (providerSelect) {
         providerSelect.addEventListener('change', () => {
             chrome.storage.local.set({ preferredProvider: providerSelect.value });
+        });
+    }
+
+    // Dual-Course Multi-AI listeners
+    if (dualCourseMultiAICB) {
+        dualCourseMultiAICB.addEventListener('change', () => {
+            const isEnabled = dualCourseMultiAICB.checked;
+            chrome.storage.local.set({ dualCourseMultiAI: isEnabled });
+            if (secondaryProviderWrapper) {
+                secondaryProviderWrapper.style.opacity = isEnabled ? '1' : '0.45';
+                secondaryProviderWrapper.style.pointerEvents = isEnabled ? 'auto' : 'none';
+            }
+        });
+    }
+
+    if (secondaryProviderSelect) {
+        secondaryProviderSelect.addEventListener('change', () => {
+            chrome.storage.local.set({ secondaryProvider: secondaryProviderSelect.value });
+        });
+    }
+
+    if (resetCoursesBtn) {
+        resetCoursesBtn.addEventListener('click', () => {
+            chrome.runtime.sendMessage({ type: 'CLEAR_COURSE_ASSIGNMENTS' }, () => {
+                cachedStorage.activeCourseAssignments = {};
+                renderActiveCourses({});
+            });
         });
     }
 

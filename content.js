@@ -40,6 +40,19 @@
     let dialogueTurnCount = 1; // Counter for dialogue message turns
     let sentDialogueAnswers = []; // History of answers sent by AutoPilot in dialogue
 
+    function getCourseSlugFromUrl(url = window.location.href) {
+        try {
+            const parsed = new URL(url);
+            const match = parsed.pathname.match(/\/learn\/([^/]+)/i);
+            if (match && match[1]) return match[1].toLowerCase();
+            const teachMatch = parsed.pathname.match(/\/teach\/([^/]+)/i);
+            if (teachMatch && teachMatch[1]) return teachMatch[1].toLowerCase();
+            const pathParts = parsed.pathname.split('/').filter(Boolean);
+            if (pathParts.length > 0 && pathParts[0] !== 'home') return pathParts[0].toLowerCase();
+        } catch (e) {}
+        return 'default_course';
+    }
+
     function hasAnyApiKey() {
         return !!(state.geminiApiKey || state.groqApiKey || state.openRouterApiKey || state.nvidiaApiKey);
     }
@@ -1583,9 +1596,11 @@ CRITICAL INSTRUCTIONS FOR A HUMANIZED STUDENT RESPONSE:
 4. Keep the response to 1-2 well-structured paragraphs (about 3-6 sentences), concise yet thorough.
 5. Do not use markdown headers, bullet lists, or bold asterisks. Use plain, conversational, academic text.`;
 
+        const courseSlug = getCourseSlugFromUrl();
         chrome.runtime.sendMessage({
             type: 'ASK_AI',
-            prompt: prompt
+            prompt: prompt,
+            courseSlug: courseSlug
         }, async (response) => {
             try {
                 if (response && response.success && response.text) {
@@ -2228,9 +2243,11 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
   }
 ]`;
 
+            const courseSlug = getCourseSlugFromUrl();
             chrome.runtime.sendMessage({
                 type: 'ASK_AI',
-                prompt: prompt
+                prompt: prompt,
+                courseSlug: courseSlug
             }, async (response) => {
                 try {
                     if (response && response.success && response.text) {
@@ -2364,7 +2381,14 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
                             rawPrompt: prompt,
                             rawResponse: text
                         };
-                        chrome.storage.local.set({ lastGeminiQuizData: quizRecord });
+                        chrome.storage.local.get(['courseQuizData'], (data) => {
+                            const cData = data.courseQuizData || {};
+                            cData[courseSlug] = quizRecord;
+                            chrome.storage.local.set({ 
+                                lastGeminiQuizData: quizRecord,
+                                courseQuizData: cData
+                            });
+                        });
 
                         addLog(`Marked answers for ${markedQuestionsCount}/${questions.length} questions via ${providerName}.`, "success");
                         acceptHonorCode();
@@ -2534,10 +2558,19 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
         quizCompletedForUrl = currentAttemptUrl;
 
         // Update popup storage with grade
-        chrome.storage.local.get(['lastGeminiQuizData'], (data) => {
+        const currentCourseSlug = getCourseSlugFromUrl();
+        chrome.storage.local.get(['lastGeminiQuizData', 'courseQuizData'], (data) => {
+            const updates = {};
             if (data.lastGeminiQuizData) {
                 data.lastGeminiQuizData.grade = quizSession.grade;
-                chrome.storage.local.set({ lastGeminiQuizData: data.lastGeminiQuizData });
+                updates.lastGeminiQuizData = data.lastGeminiQuizData;
+            }
+            if (data.courseQuizData && data.courseQuizData[currentCourseSlug]) {
+                data.courseQuizData[currentCourseSlug].grade = quizSession.grade;
+                updates.courseQuizData = data.courseQuizData;
+            }
+            if (Object.keys(updates).length > 0) {
+                chrome.storage.local.set(updates);
             }
         });
 

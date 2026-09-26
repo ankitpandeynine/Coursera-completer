@@ -220,6 +220,34 @@
       100% { opacity: 1; }
     }
 
+    .course-assignment-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      padding: 5px 8px;
+      font-size: 10.5px;
+    }
+    .course-slug-label {
+      font-weight: 600;
+      color: #334155;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 200px;
+    }
+    .course-ai-badge {
+      font-weight: 700;
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: #eff6ff;
+      color: #1d4ed8;
+      border: 1px solid #bfdbfe;
+    }
+
     /* Collapsible API Keys Section */
     .keys-card {
       background: #ffffff;
@@ -610,6 +638,44 @@
           <option value="nvidia">🟢 NVIDIA NIM (Llama 3.3 70B)</option>
         </select>
       </label>
+    </div>
+
+    <!-- Dual-Course Multi-AI Optimization -->
+    <div class="control-group">
+      <label>
+        <div class="label-title">
+          <span>⚡ Dual-Course Multi-AI</span>
+          <span class="label-hint">Run 2 parallel courses with 2 distinct AIs</span>
+        </div>
+        <input type="checkbox" id="dualCourseMultiAICB" checked>
+      </label>
+    </div>
+
+    <div class="control-group" id="secondaryProviderWrapper">
+      <label>
+        <div class="label-title">
+          <span>Secondary Course AI</span>
+          <span class="label-hint">Assigned to second simultaneous course tab</span>
+        </div>
+        <select id="secondaryProviderSelect" class="provider-select">
+          <option value="auto">🔄 Auto-Balance (Distinct AI)</option>
+          <option value="gemini">🌟 Google Gemini (Recommended 2nd)</option>
+          <option value="groq">⚡ Groq Cloud</option>
+          <option value="nvidia">🟢 NVIDIA NIM</option>
+          <option value="openrouter">🌐 OpenRouter</option>
+        </select>
+      </label>
+    </div>
+
+    <!-- Active Courses & AI Engines Card -->
+    <div class="provider-status-card" id="activeCoursesCard">
+      <div class="status-card-header">
+        <span class="status-card-title">📚 Active Courses &amp; AI Engines</span>
+        <button id="resetCoursesBtn" type="button" class="cooldown-reset-btn" title="Reset Course AI Assignments">Reset</button>
+      </div>
+      <div id="activeCoursesList" style="display: flex; flex-direction: column; gap: 5px;">
+        <div style="font-size: 10px; color: #6c757d; font-style: italic;">No concurrent courses active yet. Open Coursera courses in 2 tabs to run simultaneously!</div>
+      </div>
     </div>
 
     <!-- Provider Live Cooldown / Status Monitor -->
