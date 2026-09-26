@@ -85,7 +85,7 @@
 
     function isExtensionValid() {
         try {
-            return typeof chrome !== 'undefined' && !!chrome.runtime && !!chrome.runtime.id;
+            return typeof chrome !== 'undefined' && !!chrome.runtime && !!chrome.runtime.id && typeof chrome.runtime.getManifest === 'function';
         } catch (e) {
             return false;
         }
@@ -1261,11 +1261,22 @@
             }
         }
 
-        // 2. Strip AI conversational prefixes & meta-commentary (loop to catch stacked prefixes)
+        // 2. Strip AI conversational prefixes, meta-commentary, and question repetition (loop to catch stacked prefixes)
         let prevText = '';
         while (prevText !== text) {
             prevText = text;
-            text = text.replace(/^(?:Here (?:is|are) (?:the|a) [^\n:]*(?:coach|response|answer|reply|solution|simplification)?:?|As a student,?|Student (?:response|answer)?:?|Response:?|Answer:?|Certainly!?|Sure!?)\s*[:\-\n]*/i, '').trim();
+            // Strip "Based on the conversation history, the latest question from the AI coach is: "..." Direct student answer: "
+            text = text.replace(/^Based on (?:the )?(?:conversation|transcript|dialogue|history)[^:\n]*:?\s*(?:"[^"\n]*"\s*)?(?:Direct student answer:?)?\s*/i, '').trim();
+            // Strip "The latest question (from the AI coach) is: "..." (Direct student answer:)"
+            text = text.replace(/^(?:The latest question (?:from the AI coach )?is:[^\n]*\n?)+(?:Direct student answer:?)?\s*/i, '').trim();
+            // Strip "QUESTION ASKED BY INSTRUCTOR: ... Answer:"
+            text = text.replace(/^(?:QUESTION ASKED BY [^:\n]*:?\s*(?:"[^"\n]*"\s*)?)+\s*/i, '').trim();
+            // Strip "Direct student answer:", "Student answer:", etc.
+            text = text.replace(/^(?:Direct student answer|Student answer|Student response|Direct answer|My answer|Answer|Response):?\s*/i, '').trim();
+            // Strip conversational intro phrases
+            text = text.replace(/^(?:Here (?:is|are) (?:the|a) [^\n:]*(?:coach|response|answer|reply|solution|simplification)?:?|As a student,?|Certainly!?|Sure!?)\s*[:\-\n]*/i, '').trim();
+            // Strip "I'm ready to start the dialogue" filler if followed by actual content
+            text = text.replace(/^(?:I(?:'m| am) ready to (?:start|begin)(?: the dialogue)?\.?|Please proceed with the first question\.?)\s*/i, '').trim();
         }
 
         // 3. Clean LaTeX mathematical expressions so formulas appear as clean plain text
@@ -1403,7 +1414,93 @@
         txt = txt.replace(/Send a message\s*$/i, '');
         txt = txt.replace(/End Dialogue\s*$/i, '');
         txt = txt.replace(/I'm stuck\s*$/i, '');
+        txt = txt.replace(/When you(?:'re| are) ready, click ["']?Start Dialogue["']?[\s\S]*?(?=(?:Great|Welcome|Let's|In this|During this|Hello|To get started|What is|Can you|Could you))/i, '');
+        txt = txt.replace(/^[\s\S]*?click ["']?Start Dialogue["']?[^.\n]*[.\n]?/i, '');
+        txt = txt.replace(/Click ["']?I'm stuck["']?[^\n.]*[.\n]?/i, '');
         return txt.trim();
+    }
+
+    function extractLatestCoachQuestion() {
+        const container = getDialogueConversationContainer();
+
+        // Strategy 1: Find latest coach action buttons (thumbs up / down / copy)
+        const actionBtns = Array.from(container.querySelectorAll('button, [role="button"]')).filter(b => {
+            if (b.closest('aside, nav, header, [class*="composer" i], [class*="input" i], [role="navigation"]')) return false;
+            const aria = (b.getAttribute('aria-label') || '').toLowerCase();
+            const title = (b.getAttribute('title') || '').toLowerCase();
+            const hasSvg = !!b.querySelector('svg');
+            return (aria.includes('thumb') || aria.includes('helpful') || aria.includes('like') || 
+                    aria.includes('copy') || title.includes('thumb') || title.includes('helpful') || 
+                    title.includes('copy')) && hasSvg;
+        });
+
+        if (actionBtns.length > 0) {
+            const latestAction = actionBtns[actionBtns.length - 1];
+            let current = latestAction.parentElement;
+            while (current && current !== container && current !== document.body) {
+                const clone = current.cloneNode(true);
+                clone.querySelectorAll('button, svg, [role="button"], textarea, input, form, [class*="composer" i]').forEach(el => el.remove());
+                let txt = (clone.innerText || clone.textContent || '').replace(/\s+/g, ' ').trim();
+                txt = txt.replace(/Dialogue is powered by AI[\s\S]*$/i, '').trim();
+                txt = txt.replace(/^AI Coach:?\s*/i, '').trim();
+
+                const containsOldStudentAns = sentDialogueAnswers.length > 0 && sentDialogueAnswers.some(ans => {
+                    const normAns = ans.slice(0, 30).toLowerCase();
+                    return normAns.length >= 10 && txt.toLowerCase().includes(normAns);
+                });
+
+                if (txt.length > 25 && !containsOldStudentAns) {
+                    txt = txt.replace(/When you(?:'re| are) ready, click ["']?Start Dialogue["']?[\s\S]*?(?=(?:Great|Welcome|Let's|In this|During this|Hello|To get started|What is|Can you|Could you))/i, '');
+                    txt = txt.replace(/^[\s\S]*?click ["']?Start Dialogue["']?[^.\n]*[.\n]?/i, '');
+                    txt = txt.replace(/Click ["']?I'm stuck["']?[^\n.]*[.\n]?/i, '');
+                    return txt.trim();
+                }
+                current = current.parentElement;
+            }
+        }
+
+        // Strategy 2: Extract text following the last sent student answer
+        const fullText = getCleanDialogueText();
+        if (sentDialogueAnswers.length > 0) {
+            const lastAns = lastSentDialogueAnswer || sentDialogueAnswers[sentDialogueAnswers.length - 1];
+            const cleanAns = lastAns.replace(/\s+/g, ' ').trim();
+            const snippets = [
+                cleanAns.slice(0, 40),
+                cleanAns.slice(10, 50),
+                cleanAns.slice(-30),
+                cleanAns.slice(0, 25)
+            ].filter(s => s && s.length >= 10);
+
+            for (const snip of snippets) {
+                const idx = fullText.lastIndexOf(snip);
+                if (idx !== -1) {
+                    let after = fullText.slice(idx + snip.length).trim();
+                    const endSnip = cleanAns.slice(-20);
+                    const endIdx = after.indexOf(endSnip);
+                    if (endIdx !== -1) {
+                        after = after.slice(endIdx + endSnip.length).trim();
+                    }
+                    after = after.replace(/Dialogue is powered by AI[\s\S]*$/i, '').trim();
+                    if (after.length > 15) {
+                        return after;
+                    }
+                }
+            }
+        }
+
+        // Strategy 3: Turn 1
+        let turn1 = fullText;
+        if (/Start Dialogue/i.test(turn1)) {
+            const parts = turn1.split(/Start Dialogue["']?/i);
+            turn1 = parts[parts.length - 1];
+        }
+        turn1 = turn1.replace(/^[\s\S]*?(?=Great|Welcome|Let's|In this|During this|Hello|To get started|What is|Can you|Could you)/i, '').trim();
+        turn1 = turn1.replace(/Dialogue is powered by AI[\s\S]*$/i, '').trim();
+        if (turn1.length > 15) {
+            return turn1;
+        }
+
+        return fullText;
     }
 
     function getDialogueConversationState() {
@@ -1710,46 +1807,6 @@ async function handleDialogueItem() {
             return;
         }
 
-        // Check if coach has responded to our last sent message
-        let coachHasReplied = false;
-        if (sentDialogueAnswers.length === 0) {
-            // Turn 1: Ready to respond to initial prompt
-            coachHasReplied = true;
-        } else {
-            const lastAns = lastSentDialogueAnswer || sentDialogueAnswers[sentDialogueAnswers.length - 1];
-            const cleanAns = lastAns.replace(/\s+/g, ' ').trim();
-            const candidates = [
-                cleanAns.slice(0, 35),
-                cleanAns.slice(10, 45),
-                cleanAns.slice(-25),
-                cleanAns.slice(0, 20)
-            ].filter(s => s && s.length >= 8);
-
-            for (const c of candidates) {
-                const idx = fullDialogueText.lastIndexOf(c);
-                if (idx !== -1) {
-                    const after = fullDialogueText.slice(idx + c.length).trim();
-                    const endPart = cleanAns.slice(-15);
-                    const endIdx = after.indexOf(endPart);
-                    const remaining = (endIdx !== -1) ? after.slice(endIdx + endPart.length).trim() : after;
-                    if (remaining.length > 15) {
-                        coachHasReplied = true;
-                        break;
-                    }
-                }
-            }
-
-            // Secondary check: If 12 seconds have passed since last send and input is empty and coach not typing
-            if (!coachHasReplied && elapsedSinceLastSend > 12000 && !chatInput.disabled && chatInput.value === '') {
-                coachHasReplied = true;
-            }
-        }
-
-        if (!coachHasReplied) {
-            showStatus(`Response sent (Turn ${sentDialogueAnswers.length})! Waiting for AI coach reply...`);
-            return;
-        }
-
         // Check if coach is prompting for final session summary command
         if (/Generate final session summary/i.test(fullDialogueText.slice(-300))) {
             const summaryCmd = "Generate final session summary";
@@ -1780,6 +1837,67 @@ async function handleDialogueItem() {
             }
         }
 
+        // Extract the specific latest question asked by the coach
+        const latestCoachQuestion = extractLatestCoachQuestion();
+        if (!latestCoachQuestion || latestCoachQuestion.length < 15) {
+            showStatus("Waiting for AI coach message...");
+            return;
+        }
+
+        // Check if coach has responded to our last sent message
+        let coachHasReplied = false;
+        if (sentDialogueAnswers.length === 0) {
+            // Turn 1: Ready to respond to initial prompt
+            coachHasReplied = true;
+        } else {
+            const lastAns = lastSentDialogueAnswer || sentDialogueAnswers[sentDialogueAnswers.length - 1];
+            const cleanAns = lastAns.replace(/\s+/g, ' ').trim();
+            const normAns = cleanAns.slice(0, 30).toLowerCase();
+
+            // If latest question does not include our last sent student answer, coach has replied
+            if (!latestCoachQuestion.toLowerCase().includes(normAns) && latestCoachQuestion.length > 15) {
+                coachHasReplied = true;
+            } else {
+                const candidates = [
+                    cleanAns.slice(0, 35),
+                    cleanAns.slice(10, 45),
+                    cleanAns.slice(-25),
+                    cleanAns.slice(0, 20)
+                ].filter(s => s && s.length >= 8);
+
+                for (const c of candidates) {
+                    const idx = fullDialogueText.lastIndexOf(c);
+                    if (idx !== -1) {
+                        const after = fullDialogueText.slice(idx + c.length).trim();
+                        const endPart = cleanAns.slice(-15);
+                        const endIdx = after.indexOf(endPart);
+                        const remaining = (endIdx !== -1) ? after.slice(endIdx + endPart.length).trim() : after;
+                        if (remaining.length > 15) {
+                            coachHasReplied = true;
+                            break;
+                        }
+                    }
+                }
+
+                // Secondary check: If 12 seconds have passed since last send and input is empty and coach not typing
+                if (!coachHasReplied && elapsedSinceLastSend > 12000 && !chatInput.disabled && chatInput.value === '') {
+                    coachHasReplied = true;
+                }
+            }
+        }
+
+        if (!coachHasReplied) {
+            showStatus(`Response sent (Turn ${sentDialogueAnswers.length})! Waiting for AI coach reply...`);
+            return;
+        }
+
+        // Avoid re-answering the exact same question if already processed
+        const normQ = latestCoachQuestion.replace(/\s+/g, ' ').trim();
+        if (normQ === lastAnsweredDialogueQuestion && elapsedSinceLastSend < 15000) {
+            showStatus(`Waiting for AI coach to respond to Turn ${sentDialogueAnswers.length}...`);
+            return;
+        }
+
         if (!hasAnyApiKey()) {
             showStatus("Dialogue scenario loaded! Add an API key in the AutoPilot popup to auto-respond.");
             return;
@@ -1787,34 +1905,33 @@ async function handleDialogueItem() {
 
         isGeneratingDialogueResponse = true;
         dialogueResponseStartTime = Date.now();
+        lastAnsweredDialogueQuestion = normQ;
         const currentTurn = sentDialogueAnswers.length + 1;
 
-        addLog(`AI Coach Turn ${currentTurn}: Extracting text from website and asking AI to generate answer...`, "info");
+        addLog(`AI Coach Turn ${currentTurn}: Answering latest coach question: "${latestCoachQuestion.slice(0, 70)}..."`, "info");
         showStatus(`Thinking and drafting response for AI coach (Turn ${currentTurn})...`);
 
-        const prompt = `You are a knowledgeable university student participating in an interactive Coursera learning dialogue with an AI coach.
-Below is the full, current dialogue transcript taken directly from the website:
+        const systemPrompt = `You are a knowledgeable university student directly answering a question asked by your course instructor in an interactive Coursera learning dialogue.
 
-=== DIALOGUE TRANSCRIPT FROM WEBSITE ===
-${fullDialogueText}
-=========================================
+STRICT INSTRUCTIONS (MANDATORY):
+1. Answer the question DIRECTLY, accurately, and immediately.
+2. Output ONLY the factual, conceptual student answer in 1-2 concise academic paragraphs (3-5 sentences total).
+3. ABSOLUTELY NO commentary, conversational intros, or meta-talk. NEVER say "Based on the conversation history", "The latest question is", "Direct student answer:", "Here is the answer", "Certainly", "Sure", "I am ready", or "As a student".
+4. NEVER repeat or quote the question. Start immediately with the core answer.
+5. NO markdown headings (#, ##), NO bullet lists, NO markdown bold/italics (**), NO tables, and NO JSON/brackets. Plain academic text only.
+6. NO LaTeX formatting or dollar signs (e.g., write A + B, never $A + B$). Keep all formulas and equations in plain standard text.`;
 
-YOUR TASK:
-Read the conversation history above, identify the latest question, problem, or prompt asked by the AI coach at the very end, and provide the direct, correct student answer to reply next.
+        const prompt = `QUESTION ASKED BY INSTRUCTOR:
+"${latestCoachQuestion}"
 
-CRITICAL INSTRUCTIONS (STRICT COMPLIANCE):
-1. Output ONLY your direct answer as 1-2 concise, clear academic paragraphs (2-4 sentences).
-2. DO NOT output JSON, brackets [], curly braces {}, or quotes wrapping your response.
-3. DO NOT include markdown headers (#, ##), bullets (- or *), bold asterisks (**text**), or tables.
-4. DO NOT use conversational intros or meta-commentary (NEVER say "Here is a response...", "Here is the step-by-step simplification you can send to the AI coach:", "As a student", "Sure!").
-5. DO NOT use LaTeX formatting or dollar signs (e.g., do not write $A + BC$, write A + BC; do not write \cdot, write · or *). Keep all formulas and equations in standard plain text.
-6. Provide ONLY the direct, helpful student answer answering the latest question.`;
+Provide your direct, to-the-point student answer to the above question right now. Output ONLY your answer text without any comments, intros, or repeating the question.`;
 
         const courseSlug = getCourseSlugFromUrl();
         try {
             chrome.runtime.sendMessage({
                 type: 'ASK_AI',
                 prompt: prompt,
+                systemPrompt: systemPrompt,
                 courseSlug: courseSlug
             }, async (response) => {
                 try {
@@ -1824,6 +1941,11 @@ CRITICAL INSTRUCTIONS (STRICT COMPLIANCE):
                     }
                     if (response && response.success && response.text) {
                         let answer = cleanDialogueAnswer(response.text);
+                        if (!answer || answer.length < 5 || /^I(?:'m| am) ready to (?:start|begin)/i.test(answer)) {
+                            // Strip any remaining preamble
+                            answer = response.text.replace(/^Based on [\s\S]*?Direct student answer:?\s*/i, '').trim();
+                            answer = cleanDialogueAnswer(answer);
+                        }
                         if (!answer || answer.length < 5) {
                             answer = response.text.trim();
                         }
@@ -1848,7 +1970,7 @@ CRITICAL INSTRUCTIONS (STRICT COMPLIANCE):
                             inputEl.focus();
                             inputEl.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
                             inputEl.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
-                            inputEl.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+                            inputEl.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
                             if (inputEl.form && typeof inputEl.form.requestSubmit === 'function') {
                                 try { inputEl.form.requestSubmit(); } catch (e) {}
                             }

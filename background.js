@@ -83,7 +83,7 @@ async function getGeminiCandidateModels(apiKey) {
     return priorityFallbacks;
 }
 
-async function callSingleGemini(modelName, apiKey, prompt, useJsonMime = true, apiVersion = 'v1beta') {
+async function callSingleGemini(modelName, apiKey, prompt, useJsonMime = true, apiVersion = 'v1beta', systemPrompt = null) {
     const cleanApiKey = (apiKey || '').trim().replace(/^["']|["']$/g, '');
     const rawModel = modelName.replace(/^models\//, '');
     const cleanModel = `models/${rawModel}`;
@@ -95,6 +95,17 @@ async function callSingleGemini(modelName, apiKey, prompt, useJsonMime = true, a
             temperature: 0.1
         }
     };
+
+    if (systemPrompt) {
+        if (apiVersion === 'v1beta') {
+            bodyPayload.systemInstruction = {
+                parts: [{ text: systemPrompt }]
+            };
+        } else {
+            // v1 fallback: prepend system instruction to user prompt
+            bodyPayload.contents[0].parts[0].text = `[System Instructions: ${systemPrompt}]\n\n${prompt}`;
+        }
+    }
 
     if (useJsonMime) {
         bodyPayload.generationConfig.responseMimeType = "application/json";
@@ -117,7 +128,7 @@ async function callSingleGemini(modelName, apiKey, prompt, useJsonMime = true, a
         // If 404 on v1beta, try fallback to v1 before giving up on this model
         if (!response.ok && status === 404 && apiVersion === 'v1beta') {
             console.log(`[AutoPilot] Gemini model ${cleanModel} got 404 on v1beta, attempting v1 fallback...`);
-            return await callSingleGemini(modelName, apiKey, prompt, useJsonMime, 'v1');
+            return await callSingleGemini(modelName, apiKey, prompt, useJsonMime, 'v1', systemPrompt);
         }
 
         return { ok: response.ok, status, data };
@@ -126,7 +137,7 @@ async function callSingleGemini(modelName, apiKey, prompt, useJsonMime = true, a
     }
 }
 
-async function callGemini(apiKey, prompt) {
+async function callGemini(apiKey, prompt, customSystemPrompt = null) {
     const candidateModels = await getGeminiCandidateModels(apiKey);
     let lastError = null;
 
@@ -150,11 +161,11 @@ async function callGemini(apiKey, prompt) {
             console.log(`[AutoPilot] Directly querying Gemini model: ${shortModel} (JSON mode: ${isJsonPrompt})`);
 
             // Only use JSON response mode for quiz prompts that explicitly request JSON
-            let res = await callSingleGemini(model, apiKey, prompt, isJsonPrompt);
+            let res = await callSingleGemini(model, apiKey, prompt, isJsonPrompt, 'v1beta', customSystemPrompt);
 
             // If 400 and we attempted JSON mode, retry with plain text prompt
             if (!res.ok && res.status === 400 && isJsonPrompt) {
-                res = await callSingleGemini(model, apiKey, prompt, false);
+                res = await callSingleGemini(model, apiKey, prompt, false, 'v1beta', customSystemPrompt);
             }
 
             if (res.ok) {
@@ -243,14 +254,14 @@ async function getGroqCandidateModels(apiKey) {
     return defaultList;
 }
 
-async function callGroq(apiKey, prompt) {
+async function callGroq(apiKey, prompt, customSystemPrompt = null) {
     const groqModels = await getGroqCandidateModels(apiKey);
     let lastError = null;
 
     const isJsonPrompt = prompt.includes('JSON') || prompt.includes('Output ONLY a valid JSON array');
-    const systemPrompt = isJsonPrompt
+    const systemPrompt = customSystemPrompt || (isJsonPrompt
         ? 'You are an expert academic quiz solver. Output ONLY a valid JSON array of objects without Markdown formatting.'
-        : 'You are a smart, articulate university student participating in an interactive Coursera learning dialogue. Answer thoughtfully, directly, and naturally in plain conversational academic paragraphs without any JSON formatting, markdown headers, tables, or asterisks.';
+        : 'You are a smart, articulate university student participating in an interactive Coursera learning dialogue. Answer thoughtfully, directly, and naturally in plain conversational academic paragraphs without any JSON formatting, markdown headers, tables, or asterisks.');
 
     for (const model of groqModels) {
         try {
@@ -361,13 +372,13 @@ async function getOpenRouterCandidateModels() {
     return defaultList;
 }
 
-async function callOpenRouter(apiKey, prompt) {
+async function callOpenRouter(apiKey, prompt, customSystemPrompt = null) {
     const freeModels = await getOpenRouterCandidateModels();
     let lastError = null;
     const isJsonPrompt = prompt.includes('JSON') || prompt.includes('Output ONLY a valid JSON array');
-    const systemPrompt = isJsonPrompt
+    const systemPrompt = customSystemPrompt || (isJsonPrompt
         ? 'You are an expert academic quiz solver. Output ONLY a valid JSON array of objects without Markdown formatting.'
-        : 'You are a smart, articulate university student participating in an interactive Coursera learning dialogue. Answer thoughtfully, directly, and naturally in plain conversational academic paragraphs without any JSON formatting, markdown headers, tables, or asterisks.';
+        : 'You are a smart, articulate university student participating in an interactive Coursera learning dialogue. Answer thoughtfully, directly, and naturally in plain conversational academic paragraphs without any JSON formatting, markdown headers, tables, or asterisks.');
 
     for (const model of freeModels) {
         try {
@@ -471,7 +482,7 @@ async function getNvidiaCandidateModels(apiKey) {
     return defaultList;
 }
 
-async function callNvidia(apiKey, prompt) {
+async function callNvidia(apiKey, prompt, customSystemPrompt = null) {
     const candidateModels = await getNvidiaCandidateModels(apiKey);
     let lastError = null;
 
@@ -483,9 +494,9 @@ async function callNvidia(apiKey, prompt) {
     }
 
     const isJsonPrompt = prompt.includes('JSON') || prompt.includes('Output ONLY a valid JSON array');
-    const systemPrompt = isJsonPrompt
+    const systemPrompt = customSystemPrompt || (isJsonPrompt
         ? 'You are an expert academic quiz solver. Output ONLY a valid JSON array of objects without Markdown formatting.'
-        : 'You are a smart, articulate university student participating in a Coursera learning dialogue. Answer thoughtfully, directly, and naturally in plain conversational text.';
+        : 'You are a smart, articulate university student participating in a Coursera learning dialogue. Answer thoughtfully, directly, and naturally in plain conversational text.');
 
     for (const model of orderedModels) {
         try {
@@ -640,6 +651,7 @@ async function handleAIRequest(request, sender = null) {
 
 async function executeAIRequest(request, courseSlug = 'default_course') {
     const prompt = request.prompt;
+    const systemPrompt = request.systemPrompt || null;
     if (!prompt) {
         return { success: false, error: "No prompt provided to AI dispatcher." };
     }
@@ -777,7 +789,7 @@ async function executeAIRequest(request, courseSlug = 'default_course') {
         console.log(`[AutoPilot] [${courseSlug}] Querying AI Provider: ${prov.name}`);
 
         try {
-            const result = await prov.call(key, prompt);
+            const result = await prov.call(key, prompt, systemPrompt);
 
             if (result.ok && result.text) {
                 // Success! Clear any existing cooldown for this provider
