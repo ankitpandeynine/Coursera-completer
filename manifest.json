@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Coursera AI AutoPilot",
-  "version": "9.8",
+  "version": "9.9",
   "description": "Auto-plays videos with safe speed spoofing, skips popups, auto-completes readings, auto-navigates, and uses Gemini to solve practice questions and quizzes.",
   "homepage_url": "https://github.com/ankitpandeynine/Coursera-completer",
   "permissions": ["storage"],

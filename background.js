@@ -247,6 +247,11 @@ async function callGroq(apiKey, prompt) {
     const groqModels = await getGroqCandidateModels(apiKey);
     let lastError = null;
 
+    const isJsonPrompt = prompt.includes('JSON') || prompt.includes('Output ONLY a valid JSON array');
+    const systemPrompt = isJsonPrompt
+        ? 'You are an expert academic quiz solver. Output ONLY a valid JSON array of objects without Markdown formatting.'
+        : 'You are a smart, articulate university student participating in an interactive Coursera learning dialogue. Answer thoughtfully, directly, and naturally in plain conversational academic paragraphs without any JSON formatting, markdown headers, tables, or asterisks.';
+
     for (const model of groqModels) {
         try {
             const url = 'https://api.groq.com/openai/v1/chat/completions';
@@ -255,7 +260,7 @@ async function callGroq(apiKey, prompt) {
                 messages: [
                     {
                         role: 'system',
-                        content: 'You are an expert academic quiz solver. Output ONLY a valid JSON array of objects without Markdown formatting.'
+                        content: systemPrompt
                     },
                     {
                         role: 'user',
@@ -359,6 +364,10 @@ async function getOpenRouterCandidateModels() {
 async function callOpenRouter(apiKey, prompt) {
     const freeModels = await getOpenRouterCandidateModels();
     let lastError = null;
+    const isJsonPrompt = prompt.includes('JSON') || prompt.includes('Output ONLY a valid JSON array');
+    const systemPrompt = isJsonPrompt
+        ? 'You are an expert academic quiz solver. Output ONLY a valid JSON array of objects without Markdown formatting.'
+        : 'You are a smart, articulate university student participating in an interactive Coursera learning dialogue. Answer thoughtfully, directly, and naturally in plain conversational academic paragraphs without any JSON formatting, markdown headers, tables, or asterisks.';
 
     for (const model of freeModels) {
         try {
@@ -368,7 +377,7 @@ async function callOpenRouter(apiKey, prompt) {
                 messages: [
                     {
                         role: 'system',
-                        content: 'You are an expert academic quiz solver. Output ONLY a valid JSON array of objects without Markdown formatting.'
+                        content: systemPrompt
                     },
                     {
                         role: 'user',

@@ -1212,18 +1212,106 @@
         return false;
     }
 
+    /* ========================================================================
+       AI DIALOGUE ANSWER SANITIZER (STRIP JSON, ARRAYS, MARKDOWN DECORATIONS)
+       ======================================================================== */
+    function cleanDialogueAnswer(rawText) {
+        if (!rawText || typeof rawText !== 'string') return '';
+        let text = rawText.trim();
+
+        // 1. Try parsing JSON if starting with [ or { (e.g. [{"response": "..."}] or {"answer": "..."})
+        if ((text.startsWith('[') && text.endsWith(']')) || (text.startsWith('{') && text.endsWith('}'))) {
+            try {
+                const parsed = JSON.parse(text);
+                if (Array.isArray(parsed) && parsed.length > 0) {
+                    const first = parsed[0];
+                    if (typeof first === 'string') {
+                        text = first;
+                    } else if (typeof first === 'object' && first !== null) {
+                        text = first.response || first.answer || first.text || first.content || first.message || Object.values(first)[0] || text;
+                    }
+                } else if (typeof parsed === 'object' && parsed !== null) {
+                    text = parsed.response || parsed.answer || parsed.text || parsed.content || parsed.message || Object.values(parsed)[0] || text;
+                }
+            } catch (e) {
+                // Regex fallback for unescaped or malformed JSON
+                const match = text.match(/"(?:response|answer|text|content|message)"\s*:\s*"((?:[^"\\]|\\.)*)"/i);
+                if (match && match[1]) {
+                    text = match[1].replace(/\\n/g, '\n').replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+                } else {
+                    text = text.replace(/^\[\s*\{?\s*/, '').replace(/\s*\}?\s*\]$/, '').replace(/^\{?\s*/, '').replace(/\s*\}?$/, '');
+                }
+            }
+        }
+
+        // 2. Strip AI framing intros (e.g. "Here is a response you can send to the AI coach:")
+        text = text.replace(/^(?:Here is a response(?: you can send)?(?: to the (?:AI )?coach)?|As a student,|Here is my answer:?|Response:?|Student response:?)\s*[:\-\n]+/i, '');
+
+        // 3. Strip markdown headers (# Title, ## Section)
+        text = text.replace(/^#{1,6}\s+/gm, '');
+
+        // 4. Strip markdown bold and italics (**bold** -> bold, *italic* -> italic)
+        text = text.replace(/\*\*(.*?)\*\*/g, '$1');
+        text = text.replace(/\*(.*?)\*/g, '$1');
+        text = text.replace(/__(.*?)__/g, '$1');
+        text = text.replace(/_(.*?)_/g, '$1');
+
+        // 5. Strip bullet dashes/asterisks (keep natural flowing academic text)
+        text = text.replace(/^[\*\-•]\s+/gm, '');
+
+        // 6. Strip markdown table lines (| Col 1 | Col 2 | and |---|---|)
+        text = text.split('\n').filter(line => !line.trim().startsWith('|')).join('\n');
+
+        // 7. Strip code block fences but keep equations/formulas inside
+        text = text.replace(/```[a-zA-Z]*\n?/g, '').replace(/```/g, '');
+
+        // 8. Clean inline backticks around numbers/variables (`11111111` -> 11111111)
+        text = text.replace(/`([^`]+)`/g, '$1');
+
+        // 9. Remove any remaining stray outer brackets [ ... ] or braces { ... }
+        text = text.replace(/^\[\s*/, '').replace(/\s*\]$/, '');
+        text = text.replace(/^\{+\s*/, '').replace(/\s*\}+$/, '');
+
+        // 10. Normalize multiple blank lines into standard paragraph breaks
+        text = text.replace(/\n{3,}/g, '\n\n').trim();
+
+        return text;
+    }
+
     function isDialogueCompletedPage() {
         const text = (document.body ? document.body.textContent || '' : '').toLowerCase();
         
-        // 1. Explicit summary keywords
-        const hasSummaryKeywords = (text.includes('your strengths') || text.includes('areas for improvement') || text.includes("during today's session") || text.includes("session summary") || text.includes("dialogue completed") || text.includes("great job on completing the dialogue") || text.includes("you've completed this dialogue")) &&
-                                   (text.includes('dialogue is powered by ai') || text.includes('tell us what you think') || text.includes('strengths:') || text.includes('summary') || text.includes('performance'));
+        // 1. Explicit summary and completion keywords
+        const hasSummaryKeywords = (
+            text.includes('good job, you have completed') ||
+            text.includes('you have completed all the topics') ||
+            text.includes('up next - view your feedback') ||
+            text.includes('your strengths') || 
+            text.includes('areas for improvement') || 
+            text.includes("during today's session") || 
+            text.includes("session summary") || 
+            text.includes("dialogue completed") || 
+            text.includes("great job on completing the dialogue") || 
+            text.includes("you've completed this dialogue")
+        ) && (
+            text.includes('dialogue is powered by ai') || 
+            text.includes('tell us what you think') || 
+            text.includes('strengths:') || 
+            text.includes('summary') || 
+            text.includes('performance') ||
+            text.includes('feedback')
+        );
         if (hasSummaryKeywords) return true;
 
         // 2. Chat input disappeared on a dialogue URL and Next item button or summary card is visible
         const chatInput = findChatInputField();
         if (!chatInput) {
-            const hasEndMarkers = text.includes('session summary') || text.includes('strengths') || text.includes('completed') || text.includes('congratulations') || text.includes('feedback');
+            const hasEndMarkers = text.includes('session summary') || 
+                                  text.includes('strengths') || 
+                                  text.includes('completed') || 
+                                  text.includes('congratulations') || 
+                                  text.includes('feedback') ||
+                                  text.includes('dialogue');
             const hasNextBtn = !!findNextItemButton();
             if (hasEndMarkers && hasNextBtn) return true;
         }
@@ -1232,16 +1320,118 @@
     }
 
     function getDialogueConversationContainer() {
-        // Priority 1: Container relative to active chat input
+        // Priority 1: Exact Coursera AI coach chat container from DOM
+        const aiChatContainer = document.querySelector('[data-testid="ai-coach-chat-messages"]') ||
+                                document.querySelector('div[role="log"]') ||
+                                document.querySelector('[data-testid="coursera-coach-item"]') ||
+                                document.querySelector('[data-testid="dialogue-content"]');
+        if (aiChatContainer) return aiChatContainer;
+
+        // Priority 2: Container relative to active chat input
         const chatInput = findChatInputField();
         if (chatInput) {
             const parent = chatInput.closest('[role="main"], [data-testid="coach-conversation"], .cds-FullscreenDialog-scrollContainer, main, [class*="content" i]');
             if (parent) return parent;
         }
-        // Priority 2: Semantic main or role=main
+        
+        // Priority 3: Semantic main or role=main
         const mainEl = document.querySelector('main, [role="main"], [data-testid="coach-conversation"], .cds-FullscreenDialog-scrollContainer');
         if (mainEl) return mainEl;
         return document.body;
+    }
+
+    function getDialogueConversationState() {
+        // Locate Coursera AI Coach chat container
+        const container = getDialogueConversationContainer();
+        if (!container) {
+            return {
+                timeline: [],
+                lastSpeaker: null,
+                latestCoachMessage: '',
+                isWaitingForStudent: false,
+                allContextText: ''
+            };
+        }
+
+        // Query coach message bubbles (Coursera test-ids and classes from DevTools)
+        const rawCoachEls = Array.from(container.querySelectorAll(
+            '[data-testid="chat-message-llm"], .coach-message-response, [class*="coach-message-response"]'
+        ));
+
+        // Query user message bubbles
+        const rawUserEls = Array.from(container.querySelectorAll(
+            '[data-testid="chat-message-user"], .coach-message-client, [class*="coach-message-client"]'
+        ));
+
+        // Filter out child wrappers so we have 1 unique DOM element per message bubble
+        const filterRoots = (els) => els.filter(el => !els.some(other => other !== el && other.contains(el)));
+        const coachEls = filterRoots(rawCoachEls);
+        const userEls = filterRoots(rawUserEls);
+
+        // Build chronological list based on DOM order
+        const timeline = [];
+        coachEls.forEach(el => timeline.push({ type: 'coach', el }));
+        userEls.forEach(el => timeline.push({ type: 'student', el }));
+
+        timeline.sort((a, b) => {
+            const pos = a.el.compareDocumentPosition(b.el);
+            if (pos & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
+            if (pos & Node.DOCUMENT_POSITION_PRECEDING) return 1;
+            return 0;
+        });
+
+        // Extract clean text for each message in timeline
+        const processedTimeline = timeline.map(item => {
+            const clone = item.el.cloneNode(true);
+            clone.querySelectorAll('button, svg, [role="button"], textarea, input').forEach(n => n.remove());
+            const text = (clone.innerText || clone.textContent || '').replace(/\s+/g, ' ').trim();
+            return {
+                type: item.type,
+                text,
+                el: item.el
+            };
+        }).filter(item => item.text.length > 5);
+
+        if (processedTimeline.length === 0) {
+            // Fallback: If no dedicated test-ids found yet, check clean page text
+            const fullText = getCleanDialogueText();
+            const fallbackMsg = extractLatestCoachMessageFromText(fullText, sentDialogueAnswers);
+            return {
+                timeline: [],
+                lastSpeaker: fallbackMsg ? 'coach' : null,
+                latestCoachMessage: fallbackMsg,
+                isWaitingForStudent: !!fallbackMsg,
+                allContextText: fullText
+            };
+        }
+
+        const lastItem = processedTimeline[processedTimeline.length - 1];
+        const coachTurns = processedTimeline.filter(t => t.type === 'coach');
+        let latestCoachText = coachTurns.length > 0 ? coachTurns[coachTurns.length - 1].text : '';
+
+        // If latest coach message contains intro text like "When you're ready, click 'Start Dialogue'"
+        // Clean out the introductory preamble so the prompt focuses on the actual question!
+        let cleanPromptText = latestCoachText;
+        if (/Start Dialogue/i.test(cleanPromptText)) {
+            const parts = cleanPromptText.split(/Start Dialogue["']?/i);
+            const afterStart = parts[parts.length - 1].trim();
+            if (afterStart.length > 15) {
+                cleanPromptText = afterStart;
+            }
+        }
+        cleanPromptText = cleanPromptText.replace(/Dialogue is powered by AI[\s\S]*$/i, '').trim();
+
+        const contextBlocks = processedTimeline.slice(-6).map(t => `${t.type === 'coach' ? 'AI Coach' : 'Student'}: ${t.text}`);
+        const allContextText = contextBlocks.join('\n\n');
+
+        return {
+            timeline: processedTimeline,
+            lastSpeaker: lastItem.type, // 'coach' or 'student'
+            latestCoachMessage: cleanPromptText,
+            rawLatestCoachText: latestCoachText,
+            isWaitingForStudent: lastItem.type === 'coach',
+            allContextText
+        };
     }
 
     function getCleanDialogueText() {
@@ -1273,7 +1463,6 @@
             .map(b => b.replace(/\s+/g, ' ').trim())
             .filter(b => b.length > 15);
 
-        // If no double-spaced blocks, try splitting by single newlines for compact formatting
         if (blocks.length === 0) {
             blocks = clean.split('\n')
                 .map(b => b.replace(/\s+/g, ' ').trim())
@@ -1295,25 +1484,19 @@
             });
         }
 
-        // 5. Filter out known intro fragments if any leaked through
+        // 5. Filter out known UI chrome fragments
         blocks = blocks.filter(b => {
             const low = b.toLowerCase();
-            return !low.includes("when you're ready, click") &&
-                   !low.includes("welcome! during this dialogue") &&
-                   !low.includes("welcome! in this dialogue") &&
-                   !low.includes("here's what we'll cover") &&
+            return !low.includes("when you're ready, click \"start dialogue\"") &&
                    !low.includes("dialogue is powered by ai") &&
                    !low.includes("send a message") &&
-                   !low.includes("today's goals") &&
-                   !low.includes("practice quiz") &&
-                   !low.includes("digital foundations");
+                   !low.includes("today's goals");
         });
 
         if (blocks.length > 0) {
             return blocks[blocks.length - 1];
         }
 
-        // 6. Resilient Fallback: sentence ending in ?
         const questionMatches = clean.match(/[^.!?\n]+[?]/g);
         if (questionMatches && questionMatches.length > 0) {
             const candidate = questionMatches[questionMatches.length - 1].replace(/\s+/g, ' ').trim();
@@ -1323,79 +1506,20 @@
         return '';
     }
 
-    function extractFullDialogueContextFromText(fullText) {
-        if (!fullText) return '';
-        let clean = fullText;
-        clean = clean.replace(/Dialogue is powered by AI[\s\S]*$/i, '');
-        clean = clean.replace(/Send a message\s*$/i, '');
-        clean = clean.replace(/End Dialogue\s*$/i, '');
-        clean = clean.replace(/I'm stuck\s*$/i, '');
-
-        if (/Start Dialogue/i.test(clean)) {
-            const parts = clean.split(/Start Dialogue["']?/i);
-            clean = parts[parts.length - 1];
-        }
-
-        const blocks = clean.split(/\n\s*\n/)
-            .map(b => b.replace(/\s+/g, ' ').trim())
-            .filter(b => b.length > 15 && !b.toLowerCase().includes("today's goals"));
-
-        return blocks.slice(-6).join('\n\n');
-    }
-
     function extractLatestCoachMessage() {
-        // STRATEGY 1: DOM Structure relative to Feedback / Action Icons (Thumbs Up, Thumbs Down, Copy)
-        try {
-            const container = getDialogueConversationContainer();
-            const actionBtns = Array.from(container.querySelectorAll('button, [role="button"]')).filter(b => {
-                if (b.closest('aside, nav, header, [class*="composer" i], [class*="input" i], [role="navigation"]')) return false;
-                const aria = (b.getAttribute('aria-label') || '').toLowerCase();
-                const title = (b.getAttribute('title') || '').toLowerCase();
-                const hasSvg = !!b.querySelector('svg');
-                return (aria.includes('thumb') || aria.includes('helpful') || aria.includes('copy') || aria.includes('like') || (hasSvg && (b.innerText || '').trim() === ''));
-            });
-
-            if (actionBtns.length > 0) {
-                const lastBtn = actionBtns[actionBtns.length - 1];
-                const btnRow = lastBtn.closest('div[class*="row" i], div[class*="action" i], div[class*="feedback" i]') || lastBtn.parentElement;
-                if (btnRow) {
-                    let prev = btnRow.previousElementSibling;
-                    while (prev) {
-                        const clone = prev.cloneNode(true);
-                        clone.querySelectorAll('button, svg, textarea, input, [role="button"]').forEach(el => el.remove());
-                        let text = (clone.innerText || clone.textContent || '').replace(/\s+/g, ' ').trim();
-                        if (text.length > 15 && !text.toLowerCase().includes("dialogue is powered by ai")) {
-                            if (/Start Dialogue/i.test(text)) {
-                                const parts = text.split(/Start Dialogue["']?/i);
-                                text = parts[parts.length - 1].replace(/\s+/g, ' ').trim();
-                            }
-                            if (text.length > 15) return text;
-                        }
-                        prev = prev.previousElementSibling;
-                    }
-                }
-            }
-        } catch (e) {
-            console.warn('[AutoPilot] Strategy 1 extraction error:', e);
+        const conv = getDialogueConversationState();
+        if (conv.latestCoachMessage && conv.latestCoachMessage.length > 15) {
+            return conv.latestCoachMessage;
         }
-
-        // STRATEGY 2: Structured clean text stream parsing
-        try {
-            const fullText = getCleanDialogueText();
-            const textResult = extractLatestCoachMessageFromText(fullText, sentDialogueAnswers);
-            if (textResult && textResult.length > 15) {
-                return textResult;
-            }
-        } catch (e) {
-            console.warn('[AutoPilot] Strategy 2 extraction error:', e);
-        }
-
         return '';
     }
 
     function extractFullDialogueContext() {
-        const fullText = getCleanDialogueText();
-        return extractFullDialogueContextFromText(fullText);
+        const conv = getDialogueConversationState();
+        if (conv.allContextText && conv.allContextText.length > 20) {
+            return conv.allContextText;
+        }
+        return getCleanDialogueText();
     }
 
     function findChatInputField() {
@@ -1421,23 +1545,22 @@
 
     function findChatSendButton(inputEl) {
         if (inputEl) {
-            const parent = inputEl.closest('form, [class*="composer" i], [class*="input" i], [class*="chat" i], [class*="footer" i], .cds-FullscreenDialog-bottomBar') || inputEl.parentElement?.parentElement;
+            const parent = inputEl.closest('form, [class*="composer" i], [class*="input" i], [class*="chat" i], [class*="footer" i], .cds-FullscreenDialog-bottomBar, div[class*="css-t7gn38"]') || inputEl.parentElement?.parentElement;
             if (parent) {
+                // Priority 1: Explicit send / submit attribute
+                const explicit = parent.querySelector('button[aria-label*="send" i], button[data-testid*="send" i], button[title*="send" i], button[aria-label*="submit" i]');
+                if (explicit) return explicit;
+
+                // Priority 2: Composer button excluding microphone
                 const btns = Array.from(parent.querySelectorAll('button')).filter(b => {
                     const aria = (b.getAttribute('aria-label') || '').toLowerCase();
                     const title = (b.getAttribute('title') || '').toLowerCase();
-                    if (aria.includes('voice') || aria.includes('mic') || title.includes('mic')) return false;
+                    if (aria.includes('voice') || aria.includes('mic') || title.includes('mic') || title.includes('voice')) return false;
                     return true;
                 });
-                const sendBtn = btns.find(b => {
-                    const a = (b.getAttribute('aria-label') || '').toLowerCase();
-                    const tid = (b.getAttribute('data-testid') || '').toLowerCase();
-                    return a.includes('send') || tid.includes('send') || a.includes('submit');
-                }) || btns.find(b => {
-                    const svg = b.querySelector('svg');
-                    return svg && !b.disabled && b.getAttribute('aria-disabled') !== 'true';
-                }) || btns.find(b => !b.disabled && b.getAttribute('aria-disabled') !== 'true');
-                if (sendBtn) return sendBtn;
+                if (btns.length > 0) {
+                    return btns[btns.length - 1]; // Send is rightmost button
+                }
             }
         }
         const globalSend = document.querySelector('button[aria-label*="send" i], button[data-testid*="send" i]');
@@ -1454,6 +1577,12 @@
             el.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true, inputType: 'insertText', data: value }));
             el.dispatchEvent(new Event('change', { bubbles: true }));
             return;
+        }
+
+        // Reset React's internal _valueTracker so that the change is detected
+        const tracker = el._valueTracker;
+        if (tracker) {
+            tracker.setValue('');
         }
 
         // Try document.execCommand first which natively sets the value and updates React fiber state
@@ -1476,6 +1605,11 @@
         } else {
             el.value = value;
         }
+
+        try {
+            el.selectionStart = el.selectionEnd = value.length;
+        } catch (e) {}
+
         el.dispatchEvent(new Event('input', { bubbles: true }));
         el.dispatchEvent(new Event('change', { bubbles: true }));
         try {
@@ -1484,21 +1618,21 @@
     }
 
     async function handleDialogueItem() {
-        // Stage 3: Summary / End screen
+        // Stage 3: Summary / End screen / Completion
         if (isDialogueCompletedPage()) {
-            if (state.autoNavigate && (Date.now() - lastNavTime > 3000)) {
+            if (state.autoNavigate && (Date.now() - lastNavTime > 2500)) {
                 const nextBtn = findNextItemButton();
                 if (nextBtn) {
                     lastNavTime = Date.now();
                     addLog("Dialogue completed! Performance summary recorded. Advancing to next item...", "success");
-                    showStatus("Dialogue complete! Advancing to next item in 3s...");
+                    showStatus("Dialogue complete! Advancing to next item in 2s...");
                     triggerClick(nextBtn);
                 } else {
                     const nextTarget = findNextPendingSidebarItem() || findNextTargetSidebarItem(state.focusMode);
                     if (nextTarget) {
                         lastNavTime = Date.now();
                         addLog("Dialogue completed! Advancing to next sidebar item...", "success");
-                        showStatus("Advancing to next item in 3s...");
+                        showStatus("Advancing to next item in 2s...");
                         triggerClick(nextTarget);
                     }
                 }
@@ -1506,7 +1640,7 @@
             return;
         }
 
-        // Stage 0: Modal confirmation check (if modal is currently open)
+        // Stage 0: Modal confirmation check (if 'End Dialogue' modal is currently open)
         const confirmModalBtn = Array.from(document.querySelectorAll('[role="dialog"] button, .cds-dialog button, div[class*="modal" i] button')).find(b => {
             if (b.disabled || b.getAttribute('aria-disabled') === 'true') return false;
             const t = (b.innerText || b.textContent || '').trim().toLowerCase();
@@ -1536,45 +1670,21 @@
             return;
         }
 
-        // Check if Dialogue finished and End Dialogue button should be clicked
-        const endDialogueBtn = Array.from(document.querySelectorAll('button, a, [role="button"]')).find(b => {
-            if (b.disabled || b.getAttribute('aria-disabled') === 'true') return false;
-            const t = (b.innerText || b.textContent || '').trim().toLowerCase();
-            return (t === 'end dialogue' || t === 'finish dialogue' || t === 'complete dialogue') && !b.closest('[role="dialog"], .cds-dialog');
-        });
-        const chatText = (document.body ? document.body.innerText || '' : '').toLowerCase();
-        const hasFinishedCriteria = chatText.includes('click end dialogue') || 
-                                    chatText.includes('click "end dialogue"') ||
-                                    chatText.includes('you have completed') || 
-                                    chatText.includes('that wraps up') || 
-                                    chatText.includes('great work completing') || 
-                                    chatText.includes('congratulations on completing') ||
-                                    chatText.includes('that concludes our dialogue') ||
-                                    dialogueTurnCount >= 4;
-
-        if (endDialogueBtn && hasFinishedCriteria) {
-            addLog("Dialogue criteria completed. Clicking 'End Dialogue'...", "info");
-            showStatus("Dialogue complete! Ending session...");
-            triggerClick(endDialogueBtn);
-            setTimeout(() => {
-                const confirmEndBtn = Array.from(document.querySelectorAll('[role="dialog"] button, .cds-dialog button, div[class*="modal" i] button')).find(b => {
-                    const t = (b.innerText || b.textContent || '').trim().toLowerCase();
-                    return t === 'end dialogue' || t === 'end' || t === 'confirm' || t === 'yes';
-                });
-                if (confirmEndBtn) {
-                    triggerClick(confirmEndBtn);
-                    addLog("Confirmed 'End Dialogue' in modal dialog.", "info");
-                }
-            }, 800);
-            return;
-        }
-
-        // Stage 2: Active Dialogue Chat (Multi-Turn Conversation)
+        // Stage 2: Active Dialogue Chat (Multi-Turn Conversation State Machine)
         const chatInput = findChatInputField();
         if (!chatInput) {
+            // If chat input disappeared and Next button is present, advance!
+            const nextBtn = findNextItemButton();
+            if (nextBtn && isDialogueCompletedPage()) {
+                triggerClick(nextBtn);
+                return;
+            }
             showStatus("AI Dialogue in progress...");
             return;
         }
+
+        // Inspect Coursera AI Coach conversation timeline
+        const conv = getDialogueConversationState();
 
         // Check if coach is currently streaming / typing
         const isCoachTyping = !!document.querySelector('[data-testid*="typing" i], [class*="typing" i], [aria-label*="typing" i], .cds-loadingDots');
@@ -1583,20 +1693,56 @@
             return;
         }
 
+        // Check if last message was sent by student and coach has not yet replied
+        if (conv.timeline.length > 0 && !conv.isWaitingForStudent) {
+            showStatus("Response sent! Waiting for Coursera AI coach reply...");
+            return;
+        }
+
         if (isGeneratingDialogueResponse) {
             showStatus("Thinking and drafting humanized response for AI coach...");
             return;
         }
 
-        // Don't send too frequently (min 4s between messages)
-        if (Date.now() - lastDialogueMessageSentTime < 4000) {
+        // Don't send too frequently (min 3.5s between messages)
+        if (Date.now() - lastDialogueMessageSentTime < 3500) {
             return;
         }
 
-        const latestCoachMsg = extractLatestCoachMessage();
-        if (!latestCoachMsg || latestCoachMsg.length < 15) {
+        const latestCoachMsg = conv.latestCoachMessage;
+        if (!latestCoachMsg || latestCoachMsg.length < 10) {
             showStatus("Waiting for AI coach prompt...");
             return;
+        }
+
+        // Check if coach is prompting for final session summary command
+        if (/Generate final session summary/i.test(latestCoachMsg)) {
+            const summaryCmd = "Generate final session summary";
+            if (lastAnsweredDialogueQuestion !== summaryCmd) {
+                lastAnsweredDialogueQuestion = summaryCmd;
+                lastDialogueMessageSentTime = Date.now();
+                addLog("Coach requested session summary. Typing 'Generate final session summary'...", "info");
+                showStatus("Submitting 'Generate final session summary' to coach...");
+                
+                setReactInputValue(chatInput, summaryCmd);
+                await new Promise(r => setTimeout(r, 600));
+
+                const sendBtn = findChatSendButton(chatInput);
+                if (sendBtn) {
+                    sendBtn.disabled = false;
+                    sendBtn.removeAttribute('aria-disabled');
+                    triggerClick(sendBtn);
+                }
+                await new Promise(r => setTimeout(r, 400));
+                chatInput.focus();
+                chatInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+                chatInput.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+                chatInput.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+                if (chatInput.form && typeof chatInput.form.requestSubmit === 'function') {
+                    try { chatInput.form.requestSubmit(); } catch (e) {}
+                }
+                return;
+            }
         }
 
         const normalizedQuestion = latestCoachMsg.replace(/\s+/g, ' ').trim();
@@ -1612,9 +1758,12 @@
         }
 
         isGeneratingDialogueResponse = true;
-        const dialogueContext = extractFullDialogueContext();
-        addLog(`AI Coach Turn ${dialogueTurnCount}: "${latestCoachMsg.slice(0, 75)}..." Generating answer...`, "info");
-        showStatus(`Answering AI Coach (Turn ${dialogueTurnCount})...`);
+        const studentTurnsCount = conv.timeline.filter(t => t.type === 'student').length;
+        const currentTurn = Math.max(dialogueTurnCount, studentTurnsCount + 1);
+        const dialogueContext = conv.allContextText;
+
+        addLog(`AI Coach Turn ${currentTurn}: "${latestCoachMsg.slice(0, 75)}..." Generating student response...`, "info");
+        showStatus(`Answering AI Coach (Turn ${currentTurn})...`);
 
         const prompt = `You are a knowledgeable university student participating in an interactive Coursera learning dialogue with an AI coach.
 Answer the coach's latest question or scenario thoughtfully, accurately, and naturally based on the conversation history.
@@ -1625,12 +1774,12 @@ ${dialogueContext}
 LATEST QUESTION / PROMPT FROM COACH:
 ${latestCoachMsg}
 
-CRITICAL INSTRUCTIONS FOR A HUMANIZED STUDENT RESPONSE:
-1. Write like an actual smart human college student typing an answer.
-2. DO NOT use generic AI filler phrases (never say "Certainly!", "As an AI language model...", "Here is the solution:", "In summary", etc.).
-3. Directly answer the coach's latest question with technical depth, reasoning, and practical steps.
-4. Keep the response to 1-2 well-structured paragraphs (about 3-6 sentences), concise yet thorough.
-5. Do not use markdown headers, bullet lists, or bold asterisks. Use plain, conversational, academic text.`;
+CRITICAL RULES FOR YOUR RESPONSE (STRICT COMPLIANCE):
+1. Output ONLY the plain text of your answer as 1-2 concise, well-structured academic paragraphs (3-5 sentences).
+2. DO NOT output any JSON, brackets [], curly braces {}, or quotes wrapping your response.
+3. DO NOT include markdown headers (#, ##), bullet points (- or *), bold asterisks (**text**), or tables.
+4. DO NOT use AI conversational intros (NEVER say "Here is a response...", "Certainly!", "As a student...", "In summary").
+5. Include relevant technical terms, numbers, formulas, and equations directly in natural sentences if needed.`;
 
         const courseSlug = getCourseSlugFromUrl();
         chrome.runtime.sendMessage({
@@ -1640,17 +1789,15 @@ CRITICAL INSTRUCTIONS FOR A HUMANIZED STUDENT RESPONSE:
         }, async (response) => {
             try {
                 if (response && response.success && response.text) {
-                    let answer = response.text.trim();
-                    answer = answer.replace(/\*\*(.*?)\*\*/g, '$1')
-                                   .replace(/\*(.*?)\*/g, '$1')
-                                   .replace(/^#+\s+/gm, '')
-                                   .replace(/^-\s+/gm, '')
-                                   .trim();
+                    let answer = cleanDialogueAnswer(response.text);
+                    if (!answer || answer.length < 5) {
+                        answer = response.text.trim();
+                    }
 
                     addLog(`Generated humanized response (${answer.length} chars). Typing into chat...`, "info");
                     
-                    // Human-like pause before typing (1.2 - 2.0 seconds)
-                    await new Promise(r => setTimeout(r, 1200));
+                    // Human-like pause before typing (0.8 - 1.4 seconds)
+                    await new Promise(r => setTimeout(r, 900));
 
                     const inputEl = findChatInputField();
                     if (inputEl) {
@@ -1659,28 +1806,28 @@ CRITICAL INSTRUCTIONS FOR A HUMANIZED STUDENT RESPONSE:
 
                         const sendBtn = findChatSendButton(inputEl);
                         let sent = false;
-                        if (sendBtn && !sendBtn.disabled && sendBtn.getAttribute('aria-disabled') !== 'true') {
+                        if (sendBtn) {
+                            sendBtn.disabled = false;
+                            sendBtn.removeAttribute('aria-disabled');
                             triggerClick(sendBtn);
                             sent = true;
                         }
                         
-                        await new Promise(r => setTimeout(r, 500));
-                        // If input still contains value or sendBtn wasn't clicked, dispatch Enter and requestSubmit
-                        if (!sent || (inputEl.value && inputEl.value.trim().length > 5)) {
-                            inputEl.focus();
-                            inputEl.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
-                            inputEl.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
-                            inputEl.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
-                            if (inputEl.form && typeof inputEl.form.requestSubmit === 'function') {
-                                try { inputEl.form.requestSubmit(); } catch (e) {}
-                            }
+                        await new Promise(r => setTimeout(r, 400));
+                        // Always trigger Enter keydown/keypress/keyup to guarantee submission in chat
+                        inputEl.focus();
+                        inputEl.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+                        inputEl.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+                        inputEl.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+                        if (inputEl.form && typeof inputEl.form.requestSubmit === 'function') {
+                            try { inputEl.form.requestSubmit(); } catch (e) {}
                         }
 
                         sentDialogueAnswers.push(answer);
                         lastAnsweredDialogueQuestion = normalizedQuestion;
                         lastDialogueMessageSentTime = Date.now();
-                        dialogueTurnCount++;
-                        addLog(`Sent humanized response to Coursera AI (Turn ${dialogueTurnCount - 1})!`, "success");
+                        dialogueTurnCount = currentTurn + 1;
+                        addLog(`Sent humanized response to Coursera AI (Turn ${currentTurn})!`, "success");
                         showStatus("Response sent! Waiting for coach's reply...");
                     }
                 } else {
