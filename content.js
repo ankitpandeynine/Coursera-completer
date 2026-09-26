@@ -147,9 +147,21 @@
         if (data.nvidiaApiKey) state.nvidiaApiKey = data.nvidiaApiKey.trim();
         if (data.preferredProvider) state.preferredProvider = data.preferredProvider;
 
+        applyVisibilityOverrides();
         syncSpeedToMainWorld();
         addLog(`Extension initialized. Speed: ${state.playbackSpeed}x (${state.forceMode}), Focus: ${state.focusMode}, StrictGuard: ${state.strictCompletion}`);
     });
+
+    function applyVisibilityOverrides() {
+        if (state.bgPlay) {
+            try {
+                Object.defineProperty(document, 'visibilityState', { get: () => 'visible', configurable: true });
+                Object.defineProperty(document, 'hidden', { get: () => false, configurable: true });
+            } catch (e) {}
+        }
+    }
+    document.addEventListener('visibilitychange', (e) => { if (state.bgPlay) e.stopImmediatePropagation(); }, true);
+    window.addEventListener('blur', (e) => { if (state.bgPlay) e.stopImmediatePropagation(); }, true);
 
     chrome.storage.onChanged.addListener((changes) => {
         if (changes.speedInjection !== undefined) {
@@ -171,7 +183,10 @@
             updateSpeedBadge();
             addLog(`Speed force method changed to ${state.forceMode}`, 'info');
         }
-        if (changes.bgPlay !== undefined) state.bgPlay = changes.bgPlay.newValue;
+        if (changes.bgPlay !== undefined) {
+            state.bgPlay = changes.bgPlay.newValue;
+            applyVisibilityOverrides();
+        }
         if (changes.autoNavigate !== undefined) state.autoNavigate = changes.autoNavigate.newValue;
         if (changes.autoSolve !== undefined) state.autoSolve = changes.autoSolve.newValue;
         if (changes.focusMode !== undefined) {
@@ -2580,7 +2595,16 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
                     addLog("Skipped in-video checkpoint / prompt.", "info");
                 }
 
-                // C. Dismiss Coursera banner popups
+                // C. Dismiss Coursera banner popups & 'Skipping forward is only available' banners
+                const errorBannerBtn = Array.from(document.querySelectorAll('button, a')).find(btn => {
+                    const text = (btn.parentElement?.innerText || btn.closest('[class*="banner" i], [class*="alert" i], [class*="toast" i], [role="alert"]')?.innerText || '');
+                    return text.includes('Skipping forward is only available');
+                });
+                if (errorBannerBtn) {
+                    errorBannerBtn.click();
+                    addLog("Dismissed 'Skipping forward' speed banner.", "info");
+                }
+
                 const dismissBtn = document.querySelector('button.cds-dialog-close, button[aria-label="Close" i], button[aria-label="Dismiss" i]');
                 if (dismissBtn && !dismissBtn.closest('.cds-FullscreenDialog-scrollContainer')) {
                     dismissBtn.click();

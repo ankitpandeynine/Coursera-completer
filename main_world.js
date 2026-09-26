@@ -1,326 +1,162 @@
-// Coursera AI AutoPilot - Main World Script v8.7 (Optimized & Crash-Proof)
-// High-performance video & audio speed force engine (0.25x - 16x)
+// ============================================================================
+// Coursera AI AutoPilot - Main World Speed & Visibility Engine (v10.0)
+// High-precision video playbackRate spoofing (runs at 3x+ while spoofing 1.0x to site)
+// ============================================================================
 
 (function() {
     'use strict';
 
-    // 1. Strict Singleton Guard: Prevents double-injection and recursion
     if (window.__coursera_speed_engine_installed__) return;
     window.__coursera_speed_engine_installed__ = true;
 
-    const clamp = (value) => Math.min(16, Math.max(0.25, Number(value) || 1));
+    let forcedSpeed = 3.0;
+    let spoofingActive = true;
+    let speedInjectionEnabled = true;
 
-    // 2. Safe Synchronous Bootstrap
-    function getInitialSpeed() {
-        try {
-            const ds = document.documentElement?.dataset?.courseraSpeed;
-            if (ds) return clamp(ds);
-            const ss = sessionStorage.getItem('coursera_speed');
-            if (ss) return clamp(ss);
-        } catch (e) {}
-        return 3.0;
-    }
+    // 1. Read initial values from dataset / sessionStorage if present
+    try {
+        const ds = document.documentElement?.dataset?.courseraSpeed;
+        if (ds) forcedSpeed = parseFloat(ds) || 3.0;
+        const ss = sessionStorage.getItem('coursera_speed');
+        if (ss) forcedSpeed = parseFloat(ss) || 3.0;
 
-    function getInitialMode() {
-        try {
-            const dm = document.documentElement?.dataset?.courseraForceMode;
-            if (dm && ['hybrid', 'native', 'virtual'].includes(dm)) return dm;
-            const sm = sessionStorage.getItem('coursera_force_mode');
-            if (sm && ['hybrid', 'native', 'virtual'].includes(sm)) return sm;
-        } catch (e) {}
-        return 'hybrid';
-    }
+        const de = document.documentElement?.dataset?.courseraSpeedEnabled;
+        if (de !== undefined) speedInjectionEnabled = de !== 'false';
+        const se = sessionStorage.getItem('coursera_speed_enabled');
+        if (se !== undefined && se !== null) speedInjectionEnabled = se !== 'false';
 
-    function getInitialSpeedInjectionEnabled() {
-        try {
-            const de = document.documentElement?.dataset?.courseraSpeedEnabled;
-            if (de !== undefined) return de !== 'false';
-            const se = sessionStorage.getItem('coursera_speed_enabled');
-            if (se !== undefined && se !== null) return se !== 'false';
-        } catch (e) {}
-        return true;
-    }
+        spoofingActive = speedInjectionEnabled && forcedSpeed > 1.0;
+    } catch (e) {}
 
-    let targetSpeed = getInitialSpeed();
-    let forceMode = getInitialMode();
-    let speedInjectionEnabled = getInitialSpeedInjectionEnabled();
+    // 2. Cache original native descriptors before any site scripts run
+    const nativeDescriptor = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'playbackRate');
+    if (!nativeDescriptor) return;
 
-    // 3. Cache original native descriptors before any site scripts run
-    const nativeRateDesc = Object.getOwnPropertyDescriptor(
-        HTMLMediaElement.prototype,
-        "playbackRate"
-    );
-    const nativeDefaultRateDesc = Object.getOwnPropertyDescriptor(
-        HTMLMediaElement.prototype,
-        "defaultPlaybackRate"
-    );
+    const nativeDefaultDescriptor = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'defaultPlaybackRate');
 
-    const hookedInstances = new WeakSet();
-    const mediaTrackers = new WeakMap();
-
-    function setNativeRate(media, rate) {
-        if (!media || !(media instanceof HTMLMediaElement)) return;
-        try {
-            if (nativeRateDesc?.set) {
-                nativeRateDesc.set.call(media, rate);
+    // 3. Define spoofed playbackRate property
+    // TRICK: When forcedSpeed > 2.0, return 1.0 to Coursera's player so it never blocks or warns about skipping forward!
+    Object.defineProperty(HTMLMediaElement.prototype, 'playbackRate', {
+        get: function() {
+            if (spoofingActive && forcedSpeed > 2.0) return 1.0;
+            return nativeDescriptor.get.call(this);
+        },
+        set: function(val) {
+            if (spoofingActive && forcedSpeed > 1.0) {
+                nativeDescriptor.set.call(this, forcedSpeed);
+            } else {
+                nativeDescriptor.set.call(this, val);
             }
-            if (nativeDefaultRateDesc?.set) {
-                nativeDefaultRateDesc.set.call(media, rate);
-            }
-        } catch (e) {}
-    }
+        },
+        configurable: true,
+        enumerable: true
+    });
 
-    /* ========================================================================
-       ENGINE 1: PROTOTYPE PROPERTY INTERCEPTION (NON-BLOCKING & READY-AWARE)
-       Intercepts Coursera / Video.js playbackRate changes safely without stalling
-       ======================================================================== */
-    if (nativeRateDesc?.set) {
-        try {
-            Object.defineProperty(HTMLMediaElement.prototype, 'playbackRate', {
-                configurable: true,
-                enumerable: true,
-                get: function() {
-                    if (!speedInjectionEnabled) {
-                        return nativeRateDesc?.get ? nativeRateDesc.get.call(this) : (this._nativePlaybackRate || 1.0);
-                    }
-                    return targetSpeed;
-                },
-                set: function(val) {
-                    if (!speedInjectionEnabled) {
-                        this._nativePlaybackRate = val;
-                        setNativeRate(this, val);
-                        return;
-                    }
-                    if (forceMode === 'virtual') {
-                        setNativeRate(this, val);
-                    } else {
-                        // Allow player initialization to negotiate initial streams without stall
-                        if (this.readyState >= 2) {
-                            setNativeRate(this, targetSpeed);
-                        } else {
-                            setNativeRate(this, val);
-                            const onReady = () => {
-                                if (speedInjectionEnabled) setNativeRate(this, targetSpeed);
-                                this.removeEventListener('canplay', onReady);
-                                this.removeEventListener('playing', onReady);
-                            };
-                            this.addEventListener('canplay', onReady, { once: true, passive: true });
-                            this.addEventListener('playing', onReady, { once: true, passive: true });
-                        }
-                    }
+    if (nativeDefaultDescriptor) {
+        Object.defineProperty(HTMLMediaElement.prototype, 'defaultPlaybackRate', {
+            get: function() {
+                if (spoofingActive && forcedSpeed > 2.0) return 1.0;
+                return nativeDefaultDescriptor.get.call(this);
+            },
+            set: function(val) {
+                if (spoofingActive && forcedSpeed > 1.0) {
+                    nativeDefaultDescriptor.set.call(this, forcedSpeed);
+                } else {
+                    nativeDefaultDescriptor.set.call(this, val);
                 }
-            });
-
-            if (nativeDefaultRateDesc?.set) {
-                Object.defineProperty(HTMLMediaElement.prototype, 'defaultPlaybackRate', {
-                    configurable: true,
-                    enumerable: true,
-                    get: function() {
-                        if (!speedInjectionEnabled) {
-                            return nativeDefaultRateDesc?.get ? nativeDefaultRateDesc.get.call(this) : (this._nativePlaybackRate || 1.0);
-                        }
-                        return targetSpeed;
-                    },
-                    set: function(val) {
-                        if (!speedInjectionEnabled) {
-                            setNativeRate(this, val);
-                            return;
-                        }
-                        if (this.readyState >= 2) {
-                            setNativeRate(this, targetSpeed);
-                        } else {
-                            setNativeRate(this, val);
-                        }
-                    }
-                });
-            }
-        } catch (e) {
-            console.warn('[Coursera Speed] Prototype notice:', e);
-        }
+            },
+            configurable: true,
+            enumerable: true
+        });
     }
 
-    /* ========================================================================
-       ENGINE 2: INSTANCE-LEVEL ENFORCEMENT & PITCH PRESERVATION
-       Applies speed reliably once media is buffered and ready to play
-       ======================================================================== */
-    function hookMediaInstance(media) {
-        if (!media || !(media instanceof HTMLMediaElement)) return;
-        if (hookedInstances.has(media)) return;
-        hookedInstances.add(media);
-
+    // Helper: Enforce speed on all video and audio elements
+    function enforceSpeedOnMedia(media) {
+        if (!media) return;
         try {
             media.preservesPitch = true;
-            media.mozPreservesPitch = true;
             media.webkitPreservesPitch = true;
+            media.mozPreservesPitch = true;
         } catch (e) {}
 
-        const applySpeed = () => {
-            if (!speedInjectionEnabled) return;
-            if (forceMode !== 'virtual') {
-                if (media.readyState >= 1) {
-                    setNativeRate(media, targetSpeed);
+        try {
+            const target = (spoofingActive && forcedSpeed > 1.0) ? forcedSpeed : 1.0;
+            const currentRealRate = nativeDescriptor.get.call(media);
+            if (currentRealRate !== target) {
+                nativeDescriptor.set.call(media, target);
+            }
+            if (nativeDefaultDescriptor) {
+                const currentDefault = nativeDefaultDescriptor.get.call(media);
+                if (currentDefault !== target) {
+                    nativeDefaultDescriptor.set.call(media, target);
                 }
             }
-        };
-
-        if (media.readyState >= 2) {
-            applySpeed();
-        }
-
-        // Re-enforce cleanly on playback lifecycle events without blocking media loading
-        media.addEventListener('canplay', applySpeed, { passive: true });
-        media.addEventListener('play', applySpeed, { passive: true });
-        media.addEventListener('playing', applySpeed, { passive: true });
-        media.addEventListener('loadeddata', applySpeed, { passive: true });
-        media.addEventListener('seeked', applySpeed, { passive: true });
-
-        // Assist on timeupdate only in virtual mode (never causes seek loop in hybrid/native)
-        if (forceMode === 'virtual') {
-            media.addEventListener('timeupdate', () => {
-                checkAndAssistDrift(media);
-            }, { passive: true });
-        }
+        } catch (e) {}
     }
 
-    /* ========================================================================
-       ENGINE 3: SAFE DRIFT ASSIST (VIRTUAL MODE ONLY)
-       Smoothly steps currentTime forward only if in virtual mode and playing smoothly
-       ======================================================================== */
-    function checkAndAssistDrift(media) {
-        if (!media || media.paused || media.ended) return;
-        // Strictly only run drift assist if speed injection is enabled and in virtual mode
-        if (!speedInjectionEnabled || forceMode !== 'virtual') return;
-        // NEVER seek while still buffering or seeking to prevent buffering deadlock
-        if (media.seeking || media.readyState < 3) return;
-
-        const now = performance.now();
-        let tracker = mediaTrackers.get(media);
-
-        if (!tracker) {
-            mediaTrackers.set(media, {
-                lastTime: media.currentTime,
-                lastTimestamp: now
-            });
-            return;
-        }
-
-        const deltaRealSec = (now - tracker.lastTimestamp) / 1000;
-        tracker.lastTimestamp = now;
-
-        // Only evaluate on realistic playback time slices (250ms to 1200ms)
-        if (deltaRealSec < 0.25 || deltaRealSec > 1.2) {
-            tracker.lastTime = media.currentTime;
-            return;
-        }
-
-        const deltaVideoSec = media.currentTime - tracker.lastTime;
-        tracker.lastTime = media.currentTime;
-
-        if (deltaVideoSec < 0 || media.seeking || media.readyState < 3) return;
-
-        const expectedAdvancement = deltaRealSec * targetSpeed;
-        const lag = expectedAdvancement - deltaVideoSec;
-
-        // Micro-advance only if lagging significantly behind target (>0.4s) while playing
-        if (lag > 0.4 && lag < 1.5 && media.duration && media.currentTime + lag < media.duration) {
-            media.currentTime = Math.min(media.duration - 0.5, media.currentTime + lag);
-            tracker.lastTime = media.currentTime;
-        }
+    function enforceAllMedia() {
+        document.querySelectorAll('video, audio').forEach(enforceSpeedOnMedia);
     }
 
-    /* ========================================================================
-       LIGHTWEIGHT WATCHDOG & OBSERVER
-       Relaxed 800ms scan - near-zero CPU footprint
-       ======================================================================== */
-    function scanMedia() {
-        const list = document.querySelectorAll("video, audio");
-        for (let i = 0; i < list.length; i++) {
-            hookMediaInstance(list[i]);
-        }
-    }
-
-    setInterval(() => {
-        scanMedia();
-    }, 800);
-
-    /* ========================================================================
-       PUBLIC API & IPC CONTROLS
-       ======================================================================== */
-    window.courseraPlaybackSpeed = {
-        set(speed, mode, enabled) {
-            if (enabled !== undefined) {
-                speedInjectionEnabled = !!enabled;
-            }
-            targetSpeed = clamp(speed);
-            if (mode && ['hybrid', 'native', 'virtual'].includes(mode)) {
-                forceMode = mode;
-            }
-            try {
-                sessionStorage.setItem('coursera_speed', String(targetSpeed));
-                sessionStorage.setItem('coursera_force_mode', forceMode);
-                sessionStorage.setItem('coursera_speed_enabled', String(speedInjectionEnabled));
-                if (document.documentElement) {
-                    document.documentElement.dataset.courseraSpeed = String(targetSpeed);
-                    document.documentElement.dataset.courseraForceMode = forceMode;
-                    document.documentElement.dataset.courseraSpeedEnabled = String(speedInjectionEnabled);
-                }
-            } catch (e) {}
-
-            scanMedia();
-            const list = document.querySelectorAll("video, audio");
-            for (let i = 0; i < list.length; i++) {
-                if (!speedInjectionEnabled) {
-                    setNativeRate(list[i], 1.0);
-                } else if (forceMode !== 'virtual') {
-                    setNativeRate(list[i], targetSpeed);
-                }
-            }
-        },
-        setEnabled(enabled) {
-            speedInjectionEnabled = !!enabled;
-            try {
-                sessionStorage.setItem('coursera_speed_enabled', String(speedInjectionEnabled));
-                if (document.documentElement) {
-                    document.documentElement.dataset.courseraSpeedEnabled = String(speedInjectionEnabled);
-                }
-            } catch (e) {}
-            const list = document.querySelectorAll("video, audio");
-            for (let i = 0; i < list.length; i++) {
-                if (!speedInjectionEnabled) {
-                    setNativeRate(list[i], 1.0);
-                } else if (forceMode !== 'virtual') {
-                    setNativeRate(list[i], targetSpeed);
-                }
-            }
-        },
-        isEnabled() {
-            return speedInjectionEnabled;
-        },
-        get() {
-            return targetSpeed;
-        },
-        getMode() {
-            return forceMode;
-        }
-    };
-
+    // 4. Listen for IPC messages from content script
     window.addEventListener('message', (event) => {
         if (!event.data) return;
         if (event.data.type === 'COURSERA_FORCE_SPEED' || event.data.type === 'COURSERA_SET_SPEED') {
-            const parsedSpeed = parseFloat(event.data.speed);
-            const mode = event.data.forceMode || event.data.mode;
-            const enabled = event.data.enabled !== undefined ? !!event.data.enabled : (event.data.speedInjection !== undefined ? !!event.data.speedInjection : true);
-            window.courseraPlaybackSpeed.set(
-                !isNaN(parsedSpeed) && parsedSpeed > 0 ? parsedSpeed : targetSpeed,
-                mode,
-                enabled
-            );
+            const enabled = event.data.enabled !== undefined ? !!event.data.enabled : true;
+            speedInjectionEnabled = enabled;
+
+            if (!enabled) {
+                forcedSpeed = 1.0;
+                spoofingActive = false;
+            } else {
+                forcedSpeed = parseFloat(event.data.speed) || 3.0;
+                spoofingActive = forcedSpeed > 1.0;
+            }
+
+            try {
+                sessionStorage.setItem('coursera_speed', String(forcedSpeed));
+                sessionStorage.setItem('coursera_speed_enabled', String(speedInjectionEnabled));
+            } catch (e) {}
+
+            enforceAllMedia();
         }
     });
 
-    /* ========================================================================
-       SAFE BACKGROUND PLAY SPOOFING
-       ======================================================================== */
+    // 5. Periodic 500ms enforcement interval
+    setInterval(() => {
+        if (spoofingActive) {
+            document.querySelectorAll('video, audio').forEach(media => {
+                try {
+                    if (nativeDescriptor.get.call(media) !== forcedSpeed) {
+                        nativeDescriptor.set.call(media, forcedSpeed);
+                    }
+                } catch (e) {}
+            });
+        }
+    }, 500);
+
+    // 6. Hook lifecycle events on media elements dynamically
+    const observedMedia = new WeakSet();
+    function hookMediaEvents(media) {
+        if (!media || observedMedia.has(media)) return;
+        observedMedia.add(media);
+
+        const onEvent = () => {
+            if (spoofingActive) enforceSpeedOnMedia(media);
+        };
+
+        ['play', 'playing', 'canplay', 'loadeddata', 'seeked'].forEach(evt => {
+            media.addEventListener(evt, onEvent, { passive: true });
+        });
+
+        if (spoofingActive) enforceSpeedOnMedia(media);
+    }
+
+    setInterval(() => {
+        document.querySelectorAll('video, audio').forEach(hookMediaEvents);
+    }, 800);
+
+    // 7. Background Play Overrides
     try {
         if (Object.getOwnPropertyDescriptor(Document.prototype, 'visibilityState')?.configurable) {
             Object.defineProperty(Document.prototype, 'visibilityState', { get: () => 'visible', configurable: true });
@@ -330,10 +166,28 @@
         }
     } catch (e) {}
 
-    ['visibilitychange', 'webkitvisibilitychange'].forEach((evt) => {
+    ['visibilitychange', 'webkitvisibilitychange'].forEach(evt => {
         window.addEventListener(evt, (e) => e.stopImmediatePropagation(), true);
+        document.addEventListener(evt, (e) => e.stopImmediatePropagation(), true);
     });
+    window.addEventListener('blur', (e) => e.stopImmediatePropagation(), true);
 
-    scanMedia();
-    console.log(`[Coursera Speed Engine v8.7] Active & Optimized (${targetSpeed}x, ${forceMode}).`);
+    // 8. Public API on window for DevTools inspection
+    window.courseraPlaybackSpeed = {
+        set(speed, enabled = true) {
+            speedInjectionEnabled = !!enabled;
+            forcedSpeed = parseFloat(speed) || 1.0;
+            spoofingActive = speedInjectionEnabled && forcedSpeed > 1.0;
+            enforceAllMedia();
+        },
+        get() {
+            return forcedSpeed;
+        },
+        isSpoofing() {
+            return spoofingActive;
+        }
+    };
+
+    enforceAllMedia();
+    console.log(`[Coursera Speed Engine v10.0] Active with PlaybackRate Spoofing (${forcedSpeed}x, Spoofing: ${spoofingActive}).`);
 })();
