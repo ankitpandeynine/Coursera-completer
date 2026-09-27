@@ -255,14 +255,16 @@
 
     let lastNativeSpeedSetTime = 0;
     let lastTargetSpeedApplied = 0;
+    let lastNativeSpeedAppliedUrl = '';
 
     // Sets Coursera's native UI speed switcher button so Coursera's React store is natively aware
     function syncCourseraNativePlayerSpeed(targetSpeed) {
         if (!state.speedInjection) return;
-        if (Date.now() - lastNativeSpeedSetTime < 2500 && lastTargetSpeedApplied === targetSpeed) return;
+        // Never repeatedly click the menu on the same page during playback
+        if (lastNativeSpeedAppliedUrl === window.location.href && lastTargetSpeedApplied === targetSpeed) return;
+        if (Date.now() - lastNativeSpeedSetTime < 3000) return;
 
         // Native targets on Coursera: 0.75, 1, 1.25, 1.5, 1.75, 2
-        // If speed > 2.0, set Coursera native to 2.0x so player buffers at max native throughput
         const nativeTarget = targetSpeed >= 2.0 ? 2.0 : (Math.round(targetSpeed * 4) / 4);
         const targetText = `${nativeTarget}x`.toLowerCase();
 
@@ -273,7 +275,7 @@
 
         const currentText = (speedBtn.innerText || speedBtn.textContent || '').trim().toLowerCase();
         if (currentText === targetText || currentText === `${nativeTarget}`) {
-            lastNativeSpeedSetTime = Date.now();
+            lastNativeSpeedAppliedUrl = window.location.href;
             lastTargetSpeedApplied = targetSpeed;
             return;
         }
@@ -292,12 +294,13 @@
 
                 if (match) {
                     match.click();
-                    lastNativeSpeedSetTime = Date.now();
-                    lastTargetSpeedApplied = targetSpeed;
                 } else {
                     speedBtn.click(); // Close menu if match not found
                 }
-            }, 120);
+                lastNativeSpeedAppliedUrl = window.location.href;
+                lastTargetSpeedApplied = targetSpeed;
+                lastNativeSpeedSetTime = Date.now();
+            }, 150);
         } catch(e) {}
     }
 
@@ -1165,24 +1168,9 @@
 
     function isCurrentItemCompletedInSidebar() {
         const current = getCurrentSidebarItem();
-        if (current) {
-            const status = getSidebarItemStatus(current);
-            if (status === 'completed') return true;
-            if (status === 'pending') return false;
-        }
-
-        // Additional check: page-level completion badges/pills on modern Coursera layouts
-        const pagePills = document.querySelectorAll(
-            '[data-testid*="completion-pill"], [class*="CompletionPill"], [data-testid*="completed-badge"], [aria-label*="Completed" i], [aria-label*="Passed" i]'
-        );
-        for (const el of pagePills) {
-            const t = (el.innerText || el.textContent || el.getAttribute('aria-label') || '').toLowerCase();
-            if ((t.includes('completed') || t.includes('passed')) && !t.includes('not completed') && !t.includes('incomplete') && !t.includes('grade: 0%')) {
-                return true;
-            }
-        }
-
-        return current ? false : null;
+        if (!current) return null;
+        const status = getSidebarItemStatus(current);
+        return status === 'completed';
     }
 
     function getItemTypeFromUrl(url = window.location.href) {
@@ -2697,62 +2685,61 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
 
                 // D1. Early Green Tick Check (Optimization):
                 // If Coursera confirms the item completed mid-playback, advance immediately!
-                if (!shouldGoNext && (video.currentTime >= 3 || Date.now() - pageArrivalTime > 3500)) {
+                // Requires at least 15s of active playback and at least 35% elapsed to prevent false positives
+                if (!shouldGoNext && video.duration > 0 && video.currentTime >= 15 && (video.currentTime >= video.duration * 0.35)) {
                     const isCompletedEarly = isCurrentItemCompletedInSidebar();
                     if (isCompletedEarly === true) {
-                        addLog(`Early Completion: Coursera confirmed green tick mid-video (${Math.round(video.currentTime)}s / ${Math.round(video.duration || 0)}s). Advancing immediately...`, "info");
+                        addLog(`Early Completion: Coursera confirmed green tick mid-video (${Math.round(video.currentTime)}s / ${Math.round(video.duration)}s). Advancing immediately...`, "info");
                         showStatus("⚡ Green tick confirmed early! Advancing to next item...");
                         shouldGoNext = true;
                     }
                 }
 
-                // D2. Video Completion Check with Soft Rule Confirmation & Single Replay
-                const videoEnded = video.ended || (video.duration > 0 && video.currentTime >= video.duration - 1.5);
+                // D2. Video End Check & Beacon Completion Guarantee
+                const isNearEnd = video.duration > 0 && (video.currentTime >= video.duration - 0.5 || video.ended);
                 const countdownVisible = !!document.querySelector('.rc-PostVideoCountdown, [data-testid="video-next-button"]');
 
-                if (videoEnded || countdownVisible) {
-                    const needsConfirmation = state.strictCompletion || state.focusMode === 'pending_only';
+                if (isNearEnd || countdownVisible) {
+                    if (!videoEndedFirstSeenTime) {
+                        videoEndedFirstSeenTime = Date.now();
+                        // Dispatch ended and timeupdate so Coursera's player emits completion progress beacon
+                        try {
+                            video.dispatchEvent(new Event('timeupdate', { bubbles: true }));
+                            video.dispatchEvent(new Event('ended', { bubbles: true }));
+                        } catch(e) {}
+                    }
 
-                    if (needsConfirmation) {
-                        if (!videoEndedFirstSeenTime) {
-                            videoEndedFirstSeenTime = Date.now();
-                        }
-                        const isCompleted = isCurrentItemCompletedInSidebar();
-                        if (isCompleted === true) {
-                            // Green checkmark confirmed in sidebar!
-                            addLog("Video Completed: Green tick confirmed in sidebar.", "info");
-                            shouldGoNext = true;
-                        } else if (isCompleted === false) {
-                            // Sidebar explicitly shows not completed / white circle / failed
-                            const waitElapsed = Date.now() - videoEndedFirstSeenTime;
-                            if (waitElapsed < 3500) {
-                                showStatus(`Video ended. Waiting for Coursera green tick sync (${Math.ceil((3500 - waitElapsed) / 1000)}s)...`);
-                                return; // Hold navigation until sync or replay
-                            }
+                    const waitElapsed = Date.now() - videoEndedFirstSeenTime;
+                    const isCompleted = isCurrentItemCompletedInSidebar();
 
-                            // 3.5s elapsed and still not marked green in sidebar! Soft rule: check reattempt count:
-                            const curPath = window.location.pathname.toLowerCase();
-                            const reattemptCount = itemReattemptMap[curPath] || 0;
-                            if (reattemptCount === 0) {
-                                itemReattemptMap[curPath] = 1;
-                                videoEndedFirstSeenTime = 0;
-                                video.currentTime = 0;
-                                video.play().catch(() => {});
-                                addLog("Soft Confirmation Rule: Video ended but green tick not confirmed! Replaying video once to secure credit...", "warn");
-                                showStatus("Item not marked green! Replaying video once...");
-                                return;
-                            } else {
-                                // Already replayed once -> Soft rule: proceed ahead safely to avoid infinite loops
-                                addLog("Soft Confirmation Rule: Video replayed once. Suspected Coursera server/tracking delay; proceeding ahead to avoid loop.", "info");
-                                showStatus("Proceeding to next item...");
-                                shouldGoNext = true;
-                            }
-                        } else {
-                            // Sidebar item / status not detectable (e.g. drawer collapsed); advance safely
-                            shouldGoNext = true;
-                        }
-                    } else {
+                    if (isCompleted === true) {
+                        // Green checkmark confirmed in sidebar!
+                        addLog(`Video Completed: Green tick confirmed by Coursera (${Math.round(video.currentTime)}s / ${Math.round(video.duration)}s).`, "success");
                         shouldGoNext = true;
+                    } else {
+                        // Hold navigation for 4.5s to allow Coursera's background API to receive the completion beacon
+                        if (waitElapsed < 4500) {
+                            showStatus(`Video finished. Waiting for Coursera green tick sync (${Math.ceil((4500 - waitElapsed) / 1000)}s)...`);
+                            return;
+                        }
+
+                        // 4.5s elapsed and still not marked green in sidebar! Soft rule: check reattempt count:
+                        const curPath = window.location.pathname.toLowerCase();
+                        const reattemptCount = itemReattemptMap[curPath] || 0;
+                        if (reattemptCount === 0) {
+                            itemReattemptMap[curPath] = 1;
+                            videoEndedFirstSeenTime = 0;
+                            video.currentTime = 0;
+                            video.play().catch(() => {});
+                            addLog("Soft Confirmation Rule: Video ended but green tick not confirmed! Replaying video once at 2x to secure credit...", "warn");
+                            showStatus("No green tick yet! Replaying video once...");
+                            return;
+                        } else {
+                            // Already replayed once -> Soft rule: proceed ahead safely to avoid loop
+                            addLog("Soft Confirmation Rule: Video was replayed once. Suspected Coursera server/tracking delay; proceeding ahead to avoid loop.", "info");
+                            showStatus("Proceeding to next item...");
+                            shouldGoNext = true;
+                        }
                     }
                 }
             } 

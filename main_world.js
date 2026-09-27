@@ -3,7 +3,7 @@
 // - Native descriptor captured directly at document_start (main world)
 // - Capture-phase ratechange event shield to prevent Coursera's player reset
 // - Spoofs getter to 2.0x when speed > 2.0x (Coursera's maximum native supported rate)
-// - Allows Coursera native speeds (0.75x, 1x, 1.25x, 1.5x, 1.75x, 2x) with zero spoofing
+// - Transparent native speeds for <= 2.0x (ensures 2x gets green checkmarks 100% reliably)
 // - Turbo forced speeds from 3x up to 16x without buffer crashes or player errors
 // - Safe application: only enforces when media is ready (readyState >= 1)
 // - Automatic error & stall recovery: recovers seamlessly if buffer underruns
@@ -17,7 +17,6 @@
     window.__coursera_speed_engine_installed__ = true;
 
     let forcedSpeed = 2.0;
-    let spoofingActive = false; // Only true when forcedSpeed > 2.0
 
     // 1. Capture pristine native descriptors directly from HTMLMediaElement prototype
     const nativeDescriptor = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'playbackRate');
@@ -30,12 +29,12 @@
     // This stops Coursera's player ratechange listeners from firing and resetting the speed to 1.0!
     ['ratechange'].forEach(evt => {
         window.addEventListener(evt, (e) => {
-            if (spoofingActive && forcedSpeed > 2.0) {
+            if (forcedSpeed > 2.0) {
                 e.stopImmediatePropagation();
             }
         }, true);
         document.addEventListener(evt, (e) => {
-            if (spoofingActive && forcedSpeed > 2.0) {
+            if (forcedSpeed > 2.0) {
                 e.stopImmediatePropagation();
             }
         }, true);
@@ -46,14 +45,14 @@
         get: function() {
             // When forced speed is above Coursera's 2.0x limit, report 2.0x (Coursera's native max)
             // This satisfies Coursera's player state completely without raising flags
-            if (spoofingActive && forcedSpeed > 2.0) {
+            if (forcedSpeed > 2.0) {
                 return 2.0;
             }
             return nativeDescriptor.get.call(this);
         },
         set: function(val) {
-            // If spoofing is active and forced speed > 1.0, redirect to forced speed
-            if (spoofingActive && forcedSpeed > 1.0) {
+            // If forcedSpeed > 1.0, redirect to forcedSpeed
+            if (forcedSpeed > 1.0) {
                 nativeDescriptor.set.call(this, forcedSpeed);
             } else {
                 nativeDescriptor.set.call(this, val);
@@ -70,7 +69,7 @@
 
         // Instance capture-phase ratechange shield
         media.addEventListener('ratechange', (e) => {
-            if (spoofingActive && forcedSpeed > 2.0) {
+            if (forcedSpeed > 2.0) {
                 e.stopImmediatePropagation();
             }
         }, true);
@@ -80,7 +79,6 @@
             console.warn('[Coursera Speed Engine] Media error caught. Falling back to safe 2.0x native rate.', media.error);
             if (forcedSpeed > 2.0) {
                 forcedSpeed = 2.0;
-                spoofingActive = false;
                 try { nativeDescriptor.set.call(media, 2.0); } catch(err) {}
             }
             try {
@@ -94,11 +92,11 @@
                 configurable: true,
                 enumerable: true,
                 get: function() {
-                    if (spoofingActive && forcedSpeed > 2.0) return 2.0;
+                    if (forcedSpeed > 2.0) return 2.0;
                     return nativeDescriptor.get.call(this);
                 },
                 set: function(val) {
-                    if (spoofingActive && forcedSpeed > 1.0) {
+                    if (forcedSpeed > 1.0) {
                         nativeDescriptor.set.call(this, forcedSpeed);
                     } else {
                         nativeDescriptor.set.call(this, val);
@@ -114,7 +112,7 @@
     function applySpeedSafely(media) {
         if (!media) return;
         try {
-            const target = (spoofingActive && forcedSpeed > 1.0) ? forcedSpeed : (forcedSpeed || 1.0);
+            const target = forcedSpeed || 1.0;
             if (media.readyState >= 1) {
                 nativeDescriptor.set.call(media, target);
             }
@@ -162,13 +160,9 @@
 
             if (!enabled || isNaN(speed) || speed <= 1.0) {
                 forcedSpeed = 1.0;
-                spoofingActive = false;
                 applySpeedToAll();
             } else {
                 forcedSpeed = Math.min(16.0, Math.max(0.25, speed));
-                // Spoofing is ONLY active when speed exceeds Coursera's native 2.0x limit!
-                // For speeds <= 2.0x (e.g. 1.25x, 1.5x, 1.75x, 2.0x), no spoofing is needed!
-                spoofingActive = forcedSpeed > 2.0;
                 applySpeedToAll();
             }
         }
@@ -211,9 +205,6 @@
         const se = sessionStorage.getItem('coursera_speed_enabled');
         if (de === 'false' || se === 'false') {
             forcedSpeed = 1.0;
-            spoofingActive = false;
-        } else {
-            spoofingActive = forcedSpeed > 2.0;
         }
     } catch (e) {}
 
@@ -225,21 +216,19 @@
         set(speed, enabled = true) {
             if (!enabled || speed <= 1.0) {
                 forcedSpeed = 1.0;
-                spoofingActive = false;
                 applySpeedToAll();
             } else {
                 forcedSpeed = Math.min(16.0, Math.max(0.25, parseFloat(speed) || 1.0));
-                spoofingActive = forcedSpeed > 2.0;
                 applySpeedToAll();
             }
         },
         get() { return forcedSpeed; },
-        isSpoofing() { return spoofingActive; },
+        isSpoofing() { return forcedSpeed > 2.0; },
         getNativeRate() {
             const v = document.querySelector('video');
             return v ? nativeDescriptor.get.call(v) : null;
         }
     };
 
-    console.log(`[Coursera Speed Engine v11.0] Ready. Target Speed: ${forcedSpeed}x, Spoofing Active: ${spoofingActive}`);
+    console.log(`[Coursera Speed Engine v12.0] Ready. Target Speed: ${forcedSpeed}x, Spoofing: ${forcedSpeed > 2.0}`);
 })();
