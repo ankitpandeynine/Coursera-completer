@@ -2400,6 +2400,22 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
             if (!isExtensionValid()) return;
             if (!state.autoNavigate && !state.autoSolve) return;
 
+            // 0. COURSERA CRASH RECOVERY ("Oops! Something went wrong")
+            const bodyText = document.body ? (document.body.innerText || '') : '';
+            if (bodyText.includes('Oops! Something went wrong') || bodyText.includes('This page encountered an error')) {
+                const crashKey = 'coursera_crash_reloaded_' + window.location.pathname;
+                const lastCrashTime = parseInt(sessionStorage.getItem(crashKey) || '0', 10);
+                if (Date.now() - lastCrashTime > 12000) {
+                    sessionStorage.setItem(crashKey, String(Date.now()));
+                    addLog("Coursera crash screen detected ('Oops! Something went wrong'). Auto-refreshing in 2s to recover...", "warn");
+                    showStatus("Coursera encountered an error! Auto-refreshing in 2s...");
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 2000);
+                    return;
+                }
+            }
+
             // 1. SPA ROUTE CHANGE DETECTION (ALWAYS RUN FIRST!)
             if (window.location.href !== lastKnownUrl) {
                 lastKnownUrl = window.location.href;
@@ -2418,6 +2434,11 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
                 sentDialogueAnswers = [];
                 answeredStudentTurns = 0;
                 
+                // Cleanly reset discussion state on route change
+                if (window.CourseraDiscussionRunner && typeof window.CourseraDiscussionRunner.resetState === 'function') {
+                    window.CourseraDiscussionRunner.resetState();
+                }
+
                 // Cleanly reset quiz session whenever user or autopilot navigates to a new item
                 quizSession.url = window.location.href;
                 quizSession.status = 'IDLE';
