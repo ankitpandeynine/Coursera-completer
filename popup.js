@@ -479,6 +479,19 @@ document.addEventListener('DOMContentLoaded', () => {
     speedInput.addEventListener('change', saveSpeed);
     speedInput.addEventListener('blur', saveSpeed);
 
+    // Preset Speed Buttons
+    document.querySelectorAll('.speed-preset-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const speed = parseFloat(btn.dataset.speed) || 2.0;
+            speedInput.value = speed;
+            chrome.storage.local.set({ playbackSpeed: speed, speedInjection: true });
+            if (speedInjectionCB) {
+                speedInjectionCB.checked = true;
+                updateSpeedInjectionUI(true);
+            }
+        });
+    });
+
     // Force Method listener
     if (forceMethodSelect) {
         forceMethodSelect.addEventListener('change', () => {

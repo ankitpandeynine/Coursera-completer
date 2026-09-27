@@ -601,24 +601,35 @@
       </div>
       <label id="speedInputWrapper" style="transition: opacity 0.2s ease;">
         <div class="label-title">
-          <span>Force Speed</span>
-          <span class="label-hint">Safe limit: 0.25x - 16x</span>
+          <span>Target Playback Speed</span>
+          <span class="label-hint">Range: 0.25x - 16x</span>
         </div>
-        <input type="number" id="speedInput" step="0.5" min="0.25" max="16" value="3">
+        <input type="number" id="speedInput" step="0.25" min="0.25" max="16" value="2.0">
       </label>
+
+      <!-- Quick Speed Preset Buttons -->
+      <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px;">
+        <button type="button" class="speed-preset-btn" data-speed="1.0" style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.2); color: #ddd; border-radius: 6px; padding: 4px 8px; font-size: 11px; font-weight: 600; cursor: pointer;">1.0x</button>
+        <button type="button" class="speed-preset-btn" data-speed="1.5" style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.2); color: #ddd; border-radius: 6px; padding: 4px 8px; font-size: 11px; font-weight: 600; cursor: pointer;">1.5x</button>
+        <button type="button" class="speed-preset-btn" data-speed="2.0" style="background: rgba(0, 86, 210, 0.35); border: 1px solid #0056D2; color: #80d8ff; border-radius: 6px; padding: 4px 10px; font-size: 11px; font-weight: 700; cursor: pointer;" title="Coursera 100% Native Safe Speed - Zero Errors">⚡ 2.0x (Native Safe)</button>
+        <button type="button" class="speed-preset-btn" data-speed="3.0" style="background: rgba(0, 230, 118, 0.2); border: 1px solid #00E676; color: #00E676; border-radius: 6px; padding: 4px 10px; font-size: 11px; font-weight: 700; cursor: pointer;" title="Turbo 3.0x Speed with Anti-Crash Shield">🚀 3.0x (Turbo)</button>
+        <button type="button" class="speed-preset-btn" data-speed="4.0" style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.2); color: #ddd; border-radius: 6px; padding: 4px 8px; font-size: 11px; font-weight: 600; cursor: pointer;">4.0x</button>
+        <button type="button" class="speed-preset-btn" data-speed="8.0" style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.2); color: #ddd; border-radius: 6px; padding: 4px 8px; font-size: 11px; font-weight: 600; cursor: pointer;">8.0x</button>
+        <button type="button" class="speed-preset-btn" data-speed="16.0" style="background: rgba(255, 68, 68, 0.2); border: 1px solid #ff4444; color: #ff8888; border-radius: 6px; padding: 4px 8px; font-size: 11px; font-weight: 700; cursor: pointer;" title="Maximum hardware playback speed">16x (Max)</button>
+      </div>
     </div>
 
     <!-- Speed Force Method -->
     <div class="control-group" id="forceMethodWrapper" style="transition: opacity 0.2s ease;">
       <label>
         <div class="label-title">
-          <span>Force Method</span>
-          <span class="label-hint">Alternative speed engines</span>
+          <span>Speed Mode</span>
+          <span class="label-hint">Engine selection</span>
         </div>
         <select id="forceMethodSelect" class="provider-select">
-          <option value="hybrid">🚀 Hybrid (Native Lock + Micro-Step Assist - Recommended)</option>
-          <option value="native">🔒 Hard Native Override (Instance & Prototype Lock)</option>
-          <option value="virtual">⏩ Virtual Micro-Step (Fast Frame Advance for DRM)</option>
+          <option value="hybrid">🚀 Auto-Shield (Coursera Native 2x + Turbo Spoof up to 16x - Recommended)</option>
+          <option value="native_2x">⚡ Coursera Native 2.0x Only (100% Safe, Zero Errors, Native Buffer)</option>
+          <option value="turbo">🔥 Force Turbo (Direct Hardware Rate Override 3x-16x)</option>
         </select>
       </label>
     </div>

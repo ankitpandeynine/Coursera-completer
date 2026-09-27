@@ -18,10 +18,18 @@
 
     if (window !== window.top) return;
 
+    // Fallback injection to guarantee main_world.js executes in the page context
+    try {
+        const s = document.createElement('script');
+        s.src = chrome.runtime.getURL('main_world.js');
+        s.onload = () => s.remove();
+        (document.head || document.documentElement).appendChild(s);
+    } catch(e) {}
+
     let state = {
         speedInjection: true, // Toggle for whole video speed injection
-        playbackSpeed: 3.0,
-        forceMode: 'hybrid', // 'hybrid' | 'native' | 'virtual'
+        playbackSpeed: 2.0,
+        forceMode: 'hybrid', // 'hybrid' | 'native_2x' | 'turbo'
         bgPlay: true,
         autoNavigate: true,
         autoSolve: true,
@@ -245,6 +253,54 @@
         }, '*');
     }
 
+    let lastNativeSpeedSetTime = 0;
+    let lastTargetSpeedApplied = 0;
+
+    // Sets Coursera's native UI speed switcher button so Coursera's React store is natively aware
+    function syncCourseraNativePlayerSpeed(targetSpeed) {
+        if (!state.speedInjection) return;
+        if (Date.now() - lastNativeSpeedSetTime < 2500 && lastTargetSpeedApplied === targetSpeed) return;
+
+        // Native targets on Coursera: 0.75, 1, 1.25, 1.5, 1.75, 2
+        // If speed > 2.0, set Coursera native to 2.0x so player buffers at max native throughput
+        const nativeTarget = targetSpeed >= 2.0 ? 2.0 : (Math.round(targetSpeed * 4) / 4);
+        const targetText = `${nativeTarget}x`.toLowerCase();
+
+        const speedBtn = document.querySelector(
+            'button[aria-label*="playback rate" i], button[aria-label*="playback speed" i], button[aria-label="Video playback rate switcher"], [data-testid*="playback-rate"]'
+        );
+        if (!speedBtn) return;
+
+        const currentText = (speedBtn.innerText || speedBtn.textContent || '').trim().toLowerCase();
+        if (currentText === targetText || currentText === `${nativeTarget}`) {
+            lastNativeSpeedSetTime = Date.now();
+            lastTargetSpeedApplied = targetSpeed;
+            return;
+        }
+
+        try {
+            speedBtn.click();
+            setTimeout(() => {
+                const menuItems = Array.from(document.querySelectorAll(
+                    '[role="menuitem"], [role="menuitemradio"], [role="option"], button, li, a'
+                ));
+                const match = menuItems.find(el => {
+                    const t = (el.innerText || el.textContent || '').trim().toLowerCase();
+                    const a = (el.getAttribute('aria-label') || '').trim().toLowerCase();
+                    return t === targetText || a === targetText || t === `${nativeTarget}` || a === `${nativeTarget}`;
+                });
+
+                if (match) {
+                    match.click();
+                    lastNativeSpeedSetTime = Date.now();
+                    lastTargetSpeedApplied = targetSpeed;
+                } else {
+                    speedBtn.click(); // Close menu if match not found
+                }
+            }, 120);
+        } catch(e) {}
+    }
+
 
 
     /* ========================================================================
@@ -287,45 +343,43 @@
             textEl.innerText = state.speedInjection ? `${state.playbackSpeed}x` : 'OFF';
             textEl.style.color = state.speedInjection ? '#00E676' : '#ff9800';
         }
-        const modeEl = document.getElementById('coursera-speed-badge-mode');
-        if (modeEl) {
-            modeEl.innerText = state.speedInjection ? state.forceMode.toUpperCase() : 'NATIVE';
-            modeEl.title = state.speedInjection ? `Speed Force Method: ${state.forceMode.toUpperCase()} (Click or press \\ to toggle)` : 'Speed Injection Disabled (Playing at native Coursera speed)';
-            modeEl.style.color = state.speedInjection ? '#80d8ff' : '#888';
+        const native2xBtn = document.getElementById('coursera-speed-2x-native');
+        if (native2xBtn) {
+            if (state.playbackSpeed === 2.0 && state.speedInjection) {
+                native2xBtn.style.background = 'rgba(0, 86, 210, 0.85)';
+                native2xBtn.style.color = '#fff';
+            } else {
+                native2xBtn.style.background = 'rgba(0, 86, 210, 0.45)';
+                native2xBtn.style.color = '#80d8ff';
+            }
         }
     }
 
     function injectSpeedBadge(media) {
         if (!media) return;
         if (document.getElementById('coursera-speed-badge')) return;
-        const container = media.closest(
-            '.rc-VideoPlayer, .c-video-player, [data-testid*="video"], [class*="AudioPlayer"], [class*="audio-player"], [data-testid*="audio"], .rc-SupplementView, [class*="supplement"]'
-        ) || media.parentElement;
-        if (!container) return;
+        if (!document.body) return;
 
         const badge = document.createElement('div');
         badge.id = 'coursera-speed-badge';
         badge.style.cssText = `
-            position: absolute; top: 16px; right: 16px; z-index: 99999;
+            position: fixed; top: 72px; right: 24px; z-index: 2147483640;
             display: flex; align-items: center; gap: 6px;
-            background: rgba(0, 0, 0, 0.85); color: #00E676;
-            padding: 5px 12px; border-radius: 20px; font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-            font-size: 13px; font-weight: bold; border: 1px solid rgba(0, 230, 118, 0.4);
-            user-select: none; box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+            background: rgba(0, 0, 0, 0.88); color: #00E676;
+            padding: 6px 14px; border-radius: 20px; font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            font-size: 13px; font-weight: bold; border: 1px solid rgba(0, 230, 118, 0.45);
+            user-select: none; box-shadow: 0 4px 16px rgba(0,0,0,0.6); backdrop-filter: blur(8px);
         `;
         badge.innerHTML = `
             <span id="coursera-speed-badge-label" style="font-size: 11px; color: #aaa; cursor: pointer;" title="Click to toggle Speed Injection ON/OFF">SPEED</span>
             <span id="coursera-speed-badge-text" style="color: ${state.speedInjection ? '#00E676' : '#ff9800'};">${state.speedInjection ? `${state.playbackSpeed}x` : 'OFF'}</span>
-            <span id="coursera-speed-badge-mode" title="Speed Force Method: ${state.forceMode.toUpperCase()} (Click or press \\ to toggle)" style="font-size: 10px; color: ${state.speedInjection ? '#80d8ff' : '#888'}; cursor: pointer; border: 1px solid rgba(128, 216, 255, 0.4); border-radius: 4px; padding: 1px 5px; font-weight: 700; text-transform: uppercase;">${state.speedInjection ? state.forceMode : 'NATIVE'}</span>
-            <button id="coursera-speed-minus" title="Decrease Speed (Hotkey: [)" style="background: rgba(255,255,255,0.2); border: none; color: white; border-radius: 50%; width: 20px; height: 20px; cursor: pointer; font-size: 13px;">-</button>
-            <button id="coursera-speed-plus" title="Increase Speed (Hotkey: ])" style="background: rgba(255,255,255,0.2); border: none; color: white; border-radius: 50%; width: 20px; height: 20px; cursor: pointer; font-size: 13px;">+</button>
-            <button id="coursera-speed-end" title="Fast-forward to End" style="background: rgba(0, 230, 118, 0.25); border: 1px solid rgba(0, 230, 118, 0.4); color: #00E676; border-radius: 12px; padding: 2px 8px; cursor: pointer; font-size: 11px; font-weight: bold; margin-left: 4px;">⏩ End</button>
+            <button id="coursera-speed-2x-native" title="Switch directly to Coursera 2.0x Native Speed (100% Safe & Stable)" style="background: rgba(0, 86, 210, 0.45); border: 1px solid #0056D2; color: #80d8ff; border-radius: 10px; padding: 2px 7px; cursor: pointer; font-size: 11px; font-weight: 700;">2x Native</button>
+            <button id="coursera-speed-minus" title="Decrease Speed (Hotkey: [)" style="background: rgba(255,255,255,0.2); border: none; color: white; border-radius: 50%; width: 22px; height: 22px; cursor: pointer; font-size: 13px; line-height: 22px;">-</button>
+            <button id="coursera-speed-plus" title="Increase Speed (Hotkey: ])" style="background: rgba(255,255,255,0.2); border: none; color: white; border-radius: 50%; width: 22px; height: 22px; cursor: pointer; font-size: 13px; line-height: 22px;">+</button>
+            <button id="coursera-speed-end" title="Fast-forward to End" style="background: rgba(0, 230, 118, 0.25); border: 1px solid rgba(0, 230, 118, 0.4); color: #00E676; border-radius: 12px; padding: 2px 8px; cursor: pointer; font-size: 11px; font-weight: bold; margin-left: 2px;">⏩ End</button>
         `;
 
-        if (window.getComputedStyle(container).position === 'static') {
-            container.style.position = 'relative';
-        }
-        container.appendChild(badge);
+        document.body.appendChild(badge);
 
         const labelEl = badge.querySelector('#coursera-speed-badge-label');
         if (labelEl) {
@@ -336,16 +390,17 @@
             });
         }
 
-        const modeBtn = badge.querySelector('#coursera-speed-badge-mode');
-        if (modeBtn) {
-            modeBtn.addEventListener('click', (e) => {
+        const native2xBtn = badge.querySelector('#coursera-speed-2x-native');
+        if (native2xBtn) {
+            native2xBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
-                const modes = ['hybrid', 'native', 'virtual'];
-                state.forceMode = modes[(modes.indexOf(state.forceMode) + 1) % modes.length];
-                chrome.storage.local.set({ forceMode: state.forceMode });
+                state.speedInjection = true;
+                state.playbackSpeed = 2.0;
+                chrome.storage.local.set({ speedInjection: true, playbackSpeed: 2.0 });
                 syncSpeedToMainWorld();
+                syncCourseraNativePlayerSpeed(2.0);
                 updateSpeedBadge();
-                showStatus(`Speed Force Method: ${state.forceMode.toUpperCase()}`);
+                showStatus("⚡ Coursera 2.0x Native Speed Activated (100% Safe)");
             });
         }
 
@@ -354,6 +409,7 @@
             state.playbackSpeed = Math.max(0.25, +(state.playbackSpeed - 0.5).toFixed(2));
             chrome.storage.local.set({ playbackSpeed: state.playbackSpeed });
             syncSpeedToMainWorld();
+            syncCourseraNativePlayerSpeed(state.playbackSpeed);
             updateSpeedBadge();
         });
         badge.querySelector('#coursera-speed-plus').addEventListener('click', (e) => {
@@ -361,6 +417,7 @@
             state.playbackSpeed = Math.min(16.0, +(state.playbackSpeed + 0.5).toFixed(2));
             chrome.storage.local.set({ playbackSpeed: state.playbackSpeed });
             syncSpeedToMainWorld();
+            syncCourseraNativePlayerSpeed(state.playbackSpeed);
             updateSpeedBadge();
         });
         badge.querySelector('#coursera-speed-end').addEventListener('click', (e) => {
@@ -394,12 +451,12 @@
             showStatus(`Speed: ${state.playbackSpeed}x (${state.forceMode})`);
         } else if (e.key === '\\') {
             e.preventDefault();
-            const modes = ['hybrid', 'native', 'virtual'];
+            const modes = ['hybrid', 'native_2x', 'turbo'];
             state.forceMode = modes[(modes.indexOf(state.forceMode) + 1) % modes.length];
             chrome.storage.local.set({ forceMode: state.forceMode });
             syncSpeedToMainWorld();
             updateSpeedBadge();
-            showStatus(`Force Method: ${state.forceMode.toUpperCase()}`);
+            showStatus(`Speed Mode: ${state.forceMode.toUpperCase()}`);
         }
     });
 
@@ -2579,19 +2636,11 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
             if (video) {
                 injectSpeedBadge(video);
 
-                // Directly enforce playback speed on video only when metadata is loaded and speed injection is enabled
-                try {
-                    if (video.readyState >= 1) {
-                        if (state.speedInjection) {
-                            if (video.playbackRate !== state.playbackSpeed) {
-                                video.playbackRate = state.playbackSpeed;
-                            }
-                            if (video.defaultPlaybackRate !== state.playbackSpeed) {
-                                video.defaultPlaybackRate = state.playbackSpeed;
-                            }
-                        }
-                    }
-                } catch (e) {}
+                // Sync speed to main world engine and align Coursera's native UI switcher
+                if (state.speedInjection) {
+                    syncSpeedToMainWorld();
+                    syncCourseraNativePlayerSpeed(state.playbackSpeed);
+                }
 
                 // A. Auto-play video if paused and not ended
                 if (video.paused && !video.ended) {
@@ -2814,15 +2863,9 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
                     });
                 }
 
-                // Enforce playback speed on audio
-                try {
-                    if (audio.playbackRate !== state.playbackSpeed) {
-                        audio.playbackRate = state.playbackSpeed;
-                    }
-                    if (audio.defaultPlaybackRate !== state.playbackSpeed) {
-                        audio.defaultPlaybackRate = state.playbackSpeed;
-                    }
-                } catch (e) {}
+                if (state.speedInjection) {
+                    syncSpeedToMainWorld();
+                }
             }
 
             // B. Reading Item: Find "Mark as completed" button
