@@ -1165,9 +1165,24 @@
 
     function isCurrentItemCompletedInSidebar() {
         const current = getCurrentSidebarItem();
-        if (!current) return null;
-        const status = getSidebarItemStatus(current);
-        return status === 'completed';
+        if (current) {
+            const status = getSidebarItemStatus(current);
+            if (status === 'completed') return true;
+            if (status === 'pending') return false;
+        }
+
+        // Additional check: page-level completion badges/pills on modern Coursera layouts
+        const pagePills = document.querySelectorAll(
+            '[data-testid*="completion-pill"], [class*="CompletionPill"], [data-testid*="completed-badge"], [aria-label*="Completed" i], [aria-label*="Passed" i]'
+        );
+        for (const el of pagePills) {
+            const t = (el.innerText || el.textContent || el.getAttribute('aria-label') || '').toLowerCase();
+            if ((t.includes('completed') || t.includes('passed')) && !t.includes('not completed') && !t.includes('incomplete') && !t.includes('grade: 0%')) {
+                return true;
+            }
+        }
+
+        return current ? false : null;
     }
 
     function getItemTypeFromUrl(url = window.location.href) {
@@ -2680,18 +2695,32 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
                     dismissBtn.click();
                 }
 
-                // D. Video Completion Check with Strict Green Tick Confirmation & Reattempt Once
+                // D1. Early Green Tick Check (Optimization):
+                // If Coursera confirms the item completed mid-playback, advance immediately!
+                if (!shouldGoNext && (video.currentTime >= 3 || Date.now() - pageArrivalTime > 3500)) {
+                    const isCompletedEarly = isCurrentItemCompletedInSidebar();
+                    if (isCompletedEarly === true) {
+                        addLog(`Early Completion: Coursera confirmed green tick mid-video (${Math.round(video.currentTime)}s / ${Math.round(video.duration || 0)}s). Advancing immediately...`, "info");
+                        showStatus("⚡ Green tick confirmed early! Advancing to next item...");
+                        shouldGoNext = true;
+                    }
+                }
+
+                // D2. Video Completion Check with Soft Rule Confirmation & Single Replay
                 const videoEnded = video.ended || (video.duration > 0 && video.currentTime >= video.duration - 1.5);
                 const countdownVisible = !!document.querySelector('.rc-PostVideoCountdown, [data-testid="video-next-button"]');
 
                 if (videoEnded || countdownVisible) {
-                    if (state.strictCompletion) {
+                    const needsConfirmation = state.strictCompletion || state.focusMode === 'pending_only';
+
+                    if (needsConfirmation) {
                         if (!videoEndedFirstSeenTime) {
                             videoEndedFirstSeenTime = Date.now();
                         }
                         const isCompleted = isCurrentItemCompletedInSidebar();
                         if (isCompleted === true) {
                             // Green checkmark confirmed in sidebar!
+                            addLog("Video Completed: Green tick confirmed in sidebar.", "info");
                             shouldGoNext = true;
                         } else if (isCompleted === false) {
                             // Sidebar explicitly shows not completed / white circle / failed
@@ -2700,7 +2729,8 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
                                 showStatus(`Video ended. Waiting for Coursera green tick sync (${Math.ceil((3500 - waitElapsed) / 1000)}s)...`);
                                 return; // Hold navigation until sync or replay
                             }
-                            // 3.5s elapsed and still not marked green in sidebar! Check reattempt count:
+
+                            // 3.5s elapsed and still not marked green in sidebar! Soft rule: check reattempt count:
                             const curPath = window.location.pathname.toLowerCase();
                             const reattemptCount = itemReattemptMap[curPath] || 0;
                             if (reattemptCount === 0) {
@@ -2708,11 +2738,13 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
                                 videoEndedFirstSeenTime = 0;
                                 video.currentTime = 0;
                                 video.play().catch(() => {});
-                                addLog("Green Tick Confirmation: Video ended but not marked green! Reattempting once...", "warn");
-                                showStatus("Item not marked green! Reattempting once...");
+                                addLog("Soft Confirmation Rule: Video ended but green tick not confirmed! Replaying video once to secure credit...", "warn");
+                                showStatus("Item not marked green! Replaying video once...");
                                 return;
                             } else {
-                                addLog("Green Tick Confirmation: Reattempted once. Proceeding to next item to avoid loop.", "info");
+                                // Already replayed once -> Soft rule: proceed ahead safely to avoid infinite loops
+                                addLog("Soft Confirmation Rule: Video replayed once. Suspected Coursera server/tracking delay; proceeding ahead to avoid loop.", "info");
+                                showStatus("Proceeding to next item...");
                                 shouldGoNext = true;
                             }
                         } else {
@@ -2904,7 +2936,7 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
                     }
                 } else {
                     // Button was clicked; wait for Coursera to persist completion before advancing
-                    if (state.strictCompletion) {
+                    if (state.strictCompletion || state.focusMode === 'pending_only') {
                         const isCompleted = isCurrentItemCompletedInSidebar();
                         if (isCompleted === false && (Date.now() - pageArrivalTime < 4000)) {
                             showStatus("Reading marked, waiting for sidebar green checkmark sync...");
@@ -2934,7 +2966,7 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
                 if (window.scrollY === 0 && document.body.scrollHeight > window.innerHeight) {
                     window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
                 }
-                if (state.strictCompletion) {
+                if (state.strictCompletion || state.focusMode === 'pending_only') {
                     const isCompleted = isCurrentItemCompletedInSidebar();
                     if (isCompleted === false && (Date.now() - pageArrivalTime < 4000)) {
                         showStatus("Waiting for reading completion sync...");
