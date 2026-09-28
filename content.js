@@ -1073,69 +1073,101 @@
     function getSidebarItemStatus(element) {
         if (!element) return 'unknown';
 
-        // 1. Check aria-labels on the element and its direct wrapper
-        const elAria = (element.getAttribute('aria-label') || '').toLowerCase();
-        if (elAria.includes('not completed') || elAria.includes('incomplete') || elAria.includes('not started') || elAria.includes('failed') || elAria.includes('grade: 0%')) {
-            return 'pending';
-        }
-        if (elAria.includes('completed') || elAria.includes('passed')) {
-            return 'completed';
+        // Check both the element and its item row container (li, treeitem, item-row)
+        const row = element.closest('[role="treeitem"], li, [data-testid*="item" i], [class*="Item" i], [class*="item-row" i]') || element;
+
+        // 1. Check for negative indicators first (uncompleted / not started / failed / in progress)
+        // Any presence of these on row or element means it is definitely PENDING!
+        const elementsToCheck = [row, element];
+        for (const el of elementsToCheck) {
+            const aria = (el.getAttribute('aria-label') || '').toLowerCase();
+            if (aria.includes('not completed') || aria.includes('incomplete') || aria.includes('not started') ||
+                aria.includes('in progress') || aria.includes('failed') || aria.includes('try again') || aria.includes('grade: 0%')) {
+                return 'pending';
+            }
         }
 
-        // 2. Check SVGs inside element (Coursera renders green checkmark or white circle)
-        const svgs = Array.from(element.querySelectorAll('svg'));
+        // 2. Check SVGs for negative indicators (e.g. empty circle / incomplete indicator)
+        const svgs = Array.from(row.querySelectorAll('svg'));
         for (const svg of svgs) {
             const svgAria = (svg.getAttribute('aria-label') || '').toLowerCase();
             const svgTitle = (svg.querySelector('title')?.textContent || '').toLowerCase();
             const combinedSvg = `${svgAria} ${svgTitle}`;
 
-            if (combinedSvg.includes('not completed') || combinedSvg.includes('incomplete') || combinedSvg.includes('not started') || combinedSvg.includes('failed') || combinedSvg.includes('grade: 0%')) {
+            if (combinedSvg.includes('not completed') || combinedSvg.includes('incomplete') ||
+                combinedSvg.includes('not started') || combinedSvg.includes('in progress') || combinedSvg.includes('failed')) {
                 return 'pending';
             }
+
+            // Check if this SVG is an uncompleted empty circle
+            const circle = svg.querySelector('circle');
+            const path = svg.querySelector('path');
+            const fill = (svg.getAttribute('fill') || svg.style.fill || '').toLowerCase();
+            const stroke = (svg.getAttribute('stroke') || svg.style.stroke || '').toLowerCase();
+            const isGreen = fill.includes('00823b') || fill.includes('007a36') || fill.includes('1f883d') || fill === 'green' ||
+                            stroke.includes('00823b') || stroke.includes('007a36') || stroke.includes('1f883d') || stroke === 'green';
+
+            if (circle && !path && !isGreen) {
+                // It's an empty circle indicator -> Definitely pending
+                return 'pending';
+            }
+        }
+
+        // 3. Positive check: Green checkmark SVG or Completed aria label
+        // Coursera's official green: #00823b, #007a36, #1f883d, rgb(0, 130, 59), rgb(0, 122, 54), rgb(31, 136, 61)
+        for (const svg of svgs) {
+            const svgAria = (svg.getAttribute('aria-label') || '').toLowerCase();
+            const svgTitle = (svg.querySelector('title')?.textContent || '').toLowerCase();
+            const combinedSvg = `${svgAria} ${svgTitle}`;
+
             if (combinedSvg.includes('completed') || combinedSvg.includes('passed')) {
                 return 'completed';
             }
 
-            // Green color check (#00823b, #1f883d, rgb(0, 130, 59))
             const fill = (svg.getAttribute('fill') || svg.style.fill || '').toLowerCase();
             const stroke = (svg.getAttribute('stroke') || svg.style.stroke || '').toLowerCase();
-            const isGreenAttr = fill.includes('00823b') || fill.includes('1f883d') || fill === 'green' ||
-                                stroke.includes('00823b') || stroke.includes('1f883d') || stroke === 'green';
-            if (isGreenAttr) return 'completed';
+            if (fill.includes('00823b') || fill.includes('007a36') || fill.includes('1f883d') || fill === 'green' ||
+                stroke.includes('00823b') || stroke.includes('007a36') || stroke.includes('1f883d') || stroke === 'green') {
+                return 'completed';
+            }
 
             try {
                 const comp = window.getComputedStyle(svg);
                 const compFill = comp.fill || '';
                 const compColor = comp.color || '';
-                if (compFill.includes('0, 130, 59') || compFill.includes('00823b') || compColor.includes('0, 130, 59') || compColor.includes('00823b')) {
+                if (compFill.includes('0, 130, 59') || compFill.includes('00823b') || compFill.includes('0, 122, 54') || compFill.includes('31, 136, 61') ||
+                    compColor.includes('0, 130, 59') || compColor.includes('00823b') || compColor.includes('0, 122, 54') || compColor.includes('31, 136, 61')) {
                     return 'completed';
                 }
             } catch (e) {}
 
-            // Incomplete white circle indicator (circle shape without checkmark or green fill)
-            const circle = svg.querySelector('circle');
-            const path = svg.querySelector('path');
-            if (circle && !path && !isGreenAttr) {
-                return 'pending';
-            }
-        }
-
-        // 3. Classes and testids indicating completion
-        const hasCompletedClass = !!element.querySelector('[class*="completed" i], [class*="Completed" i], [data-testid*="completed" i], [data-testid*="Completed" i]');
-        if (hasCompletedClass) {
-            const text = (element.innerText || element.textContent || '').toLowerCase();
-            if (!text.includes('not completed') && !text.includes('incomplete') && !text.includes('grade: 0%') && !text.includes('failed')) {
+            // Check if SVG has explicit checkmark testid or path
+            const testId = (svg.getAttribute('data-testid') || '').toLowerCase();
+            if ((testId.includes('check') || testId.includes('success')) && !testId.includes('unchecked')) {
                 return 'completed';
             }
         }
 
-        // 4. Text content checks (e.g. "Grade: 100%", "Completed", "Passed")
-        const text = (element.innerText || element.textContent || '').toLowerCase();
-        if (text.includes('grade: 0%') || text.includes('grade: 0.0%') || text.includes('failed') || text.includes('try again') || text.includes('not passed')) {
-            return 'pending';
+        // 4. Positive check on aria-label of row / element
+        for (const el of elementsToCheck) {
+            const aria = (el.getAttribute('aria-label') || '').toLowerCase();
+            if (aria.includes('completed') || aria.includes('passed')) {
+                return 'completed';
+            }
         }
-        if (text.includes('grade:') || text.includes('completed') || text.includes('passed')) {
-            if (!text.includes('not completed') && !text.includes('incomplete')) {
+
+        // 5. Positive check on explicit badge / text
+        const completedBadge = row.querySelector('.rc-CompletedBadge, [data-testid="completed-badge"], [data-testid="passed-badge"]');
+        if (completedBadge) {
+            const bText = (completedBadge.innerText || completedBadge.textContent || '').toLowerCase();
+            if (!bText.includes('not') && !bText.includes('incomplete')) {
+                return 'completed';
+            }
+        }
+
+        const text = (row.innerText || row.textContent || '').toLowerCase();
+        if (text.includes('grade: 100%') || text.includes('grade: 9') || text.includes('grade: 8') || text.includes('passed')) {
+            if (!text.includes('not completed') && !text.includes('incomplete') && !text.includes('not passed') && !text.includes('failed')) {
                 return 'completed';
             }
         }
@@ -1143,27 +1175,64 @@
         return 'pending';
     }
 
+    function extractCourseItemKey(urlOrPath) {
+        if (!urlOrPath) return '';
+        try {
+            const path = (urlOrPath.includes('://') ? new URL(urlOrPath).pathname : urlOrPath).toLowerCase();
+            const m = path.match(/\/(lecture|supplement|assignment-submission|exam|quiz|discussionprompt|graded-assignment|ungradedlti|reading|coach|dialogue|item|peer)\/([a-z0-9_-]+)/i);
+            if (m) {
+                return `${m[1]}/${m[2]}`.toLowerCase();
+            }
+        } catch(e) {}
+        return '';
+    }
+
     function getCurrentSidebarItem() {
         const currentPath = window.location.pathname.toLowerCase();
+        const currentKey = extractCourseItemKey(currentPath);
         const items = getSidebarNavigationItems();
         if (!items || items.length === 0) return null;
 
-        // Exact or partial match on pathname
-        let current = items.find(item => {
-            const href = (item.getAttribute('href') || '').toLowerCase();
-            return href && (href.includes(currentPath) || currentPath.includes(href));
-        });
-
-        // Or aria-current="page" / active class
-        if (!current) {
-            current = items.find(item => {
-                return item.getAttribute('aria-current') === 'page' ||
-                       item.getAttribute('aria-selected') === 'true' ||
-                       item.classList.contains('active') ||
-                       item.closest('[aria-current="page"], [aria-selected="true"], .active');
+        // 1. Match by unique item type + ID key (most accurate across SPAs)
+        if (currentKey) {
+            const keyMatch = items.find(item => {
+                const href = item.getAttribute('href') || item.href || '';
+                const itemKey = extractCourseItemKey(href);
+                return itemKey && itemKey === currentKey;
             });
+            if (keyMatch) return keyMatch;
         }
-        return current;
+
+        // 2. Exact match on normalized pathname
+        const exactMatch = items.find(item => {
+            try {
+                const itemUrl = new URL(item.getAttribute('href') || item.href, window.location.origin);
+                const itemPath = itemUrl.pathname.replace(/\/+$/, '').toLowerCase();
+                const curPath = currentPath.replace(/\/+$/, '').toLowerCase();
+                return itemPath === curPath;
+            } catch(e) {
+                return false;
+            }
+        });
+        if (exactMatch) return exactMatch;
+
+        // 3. Match active navigation state attributes on item or item row
+        const activeItem = items.find(item => {
+            const row = item.closest('[role="treeitem"], li, [data-testid*="item" i], [class*="Item" i]') || item;
+            return item.getAttribute('aria-current') === 'page' ||
+                   item.getAttribute('aria-current') === 'true' ||
+                   item.getAttribute('aria-selected') === 'true' ||
+                   item.classList.contains('active') ||
+                   row.getAttribute('aria-current') === 'page' ||
+                   row.getAttribute('aria-current') === 'true' ||
+                   row.getAttribute('aria-selected') === 'true' ||
+                   row.classList.contains('active') ||
+                   row.classList.contains('selected') ||
+                   row.getAttribute('data-selected') === 'true';
+        });
+        if (activeItem) return activeItem;
+
+        return null;
     }
 
     function isCurrentItemCompletedInSidebar() {
@@ -2528,7 +2597,7 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
 
             // B. 2-Minute Skip Watchdog: If stuck on same page for >2 minutes (and video is not actively playing forward and dialogue is not actively conversing), skip to next item!
             const video = document.querySelector('video');
-            const isVideoActivelyPlaying = video && !video.paused && !video.ended && (video.readyState >= 3);
+            const isVideoActivelyPlaying = video && !video.paused && !video.ended && (video.currentTime > 0);
             const isDialogueActive = isDialogueOrCoachItem() && !isDialogueCompletedPage() && (Date.now() - lastDialogueMessageSentTime < 90000);
             const isDiscussionActive = isDiscussionPromptItem() && (timeOnPage < 90000);
             if (timeOnPage > 120000 && !isVideoActivelyPlaying && !isDialogueActive && !isDiscussionActive && (Date.now() - lastNavTime > 4000)) {
@@ -2685,11 +2754,11 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
 
                 // D1. Early Green Tick Check (Optimization):
                 // If Coursera confirms the item completed mid-playback, advance immediately!
-                // Requires at least 15s of active playback and at least 35% elapsed to prevent false positives
-                if (!shouldGoNext && video.duration > 0 && video.currentTime >= 15 && (video.currentTime >= video.duration * 0.35)) {
+                // Requires at least 15s of active playback and at least 80% duration elapsed to prevent premature skips
+                if (!shouldGoNext && video.duration > 0 && video.currentTime >= 15 && (video.currentTime >= video.duration * 0.80)) {
                     const isCompletedEarly = isCurrentItemCompletedInSidebar();
                     if (isCompletedEarly === true) {
-                        addLog(`Early Completion: Coursera confirmed green tick mid-video (${Math.round(video.currentTime)}s / ${Math.round(video.duration)}s). Advancing immediately...`, "info");
+                        addLog(`Early Completion: Coursera confirmed green tick mid-video (${Math.round(video.currentTime)}s / ${Math.round(video.duration)}s). Advancing immediately...`, "success");
                         showStatus("⚡ Green tick confirmed early! Advancing to next item...");
                         shouldGoNext = true;
                     }
@@ -2697,7 +2766,7 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
 
                 // D2. Video End Check & Beacon Completion Guarantee
                 const isNearEnd = video.duration > 0 && (video.currentTime >= video.duration - 0.5 || video.ended);
-                const countdownVisible = !!document.querySelector('.rc-PostVideoCountdown, [data-testid="video-next-button"]');
+                const countdownVisible = !!(video.duration > 0 && video.currentTime >= video.duration - 2 && document.querySelector('.rc-PostVideoCountdown, [data-testid="post-video-countdown"]'));
 
                 if (isNearEnd || countdownVisible) {
                     if (!videoEndedFirstSeenTime) {
@@ -2717,13 +2786,13 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
                         addLog(`Video Completed: Green tick confirmed by Coursera (${Math.round(video.currentTime)}s / ${Math.round(video.duration)}s).`, "success");
                         shouldGoNext = true;
                     } else {
-                        // Hold navigation for 4.5s to allow Coursera's background API to receive the completion beacon
-                        if (waitElapsed < 4500) {
-                            showStatus(`Video finished. Waiting for Coursera green tick sync (${Math.ceil((4500 - waitElapsed) / 1000)}s)...`);
+                        // Hold navigation for 5.0s to allow Coursera's background API to receive the completion beacon
+                        if (waitElapsed < 5000) {
+                            showStatus(`Video finished. Waiting for Coursera green tick sync (${Math.ceil((5000 - waitElapsed) / 1000)}s)...`);
                             return;
                         }
 
-                        // 4.5s elapsed and still not marked green in sidebar! Soft rule: check reattempt count:
+                        // 5.0s elapsed and still not marked green in sidebar! Soft rule: check reattempt count:
                         const curPath = window.location.pathname.toLowerCase();
                         const reattemptCount = itemReattemptMap[curPath] || 0;
                         if (reattemptCount === 0) {
@@ -2735,7 +2804,7 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
                             showStatus("No green tick yet! Replaying video once...");
                             return;
                         } else {
-                            // Already replayed once -> Soft rule: proceed ahead safely to avoid loop
+                            // Already replayed once -> Soft rule: proceed ahead safely to avoid permanent loop
                             addLog("Soft Confirmation Rule: Video was replayed once. Suspected Coursera server/tracking delay; proceeding ahead to avoid loop.", "info");
                             showStatus("Proceeding to next item...");
                             shouldGoNext = true;
@@ -2923,7 +2992,7 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
                     }
                 } else {
                     // Button was clicked; wait for Coursera to persist completion before advancing
-                    if (state.strictCompletion || state.focusMode === 'pending_only') {
+                    if (state.strictCompletion || state.focusMode === 'pending_only' || state.focusMode === 'all') {
                         const isCompleted = isCurrentItemCompletedInSidebar();
                         if (isCompleted === false && (Date.now() - pageArrivalTime < 4000)) {
                             showStatus("Reading marked, waiting for sidebar green checkmark sync...");
@@ -2953,7 +3022,7 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
                 if (window.scrollY === 0 && document.body.scrollHeight > window.innerHeight) {
                     window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
                 }
-                if (state.strictCompletion || state.focusMode === 'pending_only') {
+                if (state.strictCompletion || state.focusMode === 'pending_only' || state.focusMode === 'all') {
                     const isCompleted = isCurrentItemCompletedInSidebar();
                     if (isCompleted === false && (Date.now() - pageArrivalTime < 4000)) {
                         showStatus("Waiting for reading completion sync...");
