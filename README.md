@@ -18,6 +18,10 @@
 
 ---
 
+## Guide Video link - 
+https://youtu.be/hsEq-6G7GVk?si=ml1vR7fClMGV_5a1
+
+---
 ## ✨ Features
 
 * **🧠 Multi-Provider AI Quiz Auto-Solver (Radios, Checkboxes & Free-Text Fields):** Automatically parses practice quiz questions, code snippets, multiple-choice options, formulas, and free-text/fill-in-the-blank input fields. Dynamically queries AI models, fills text answers via React state synchronization, marks correct choices, agrees to honor codes, and submits assignments.
