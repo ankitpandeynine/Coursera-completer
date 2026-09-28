@@ -876,6 +876,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         })();
         return true;
     }
+
+    if (request.type === 'CHECK_FOR_UPDATES') {
+        (async () => {
+            const updateInfo = await checkForGitHubUpdate();
+            sendResponse(updateInfo);
+        })();
+        return true;
+    }
 });
 
 // Clear provider cooldowns when API keys are updated in settings
@@ -885,6 +893,83 @@ chrome.storage.onChanged.addListener((changes) => {
     if (changes.openRouterApiKey) clearCooldown('openrouter');
     if (changes.nvidiaApiKey) clearCooldown('nvidia');
 });
+
+// ==========================================
+// 8. GITHUB AUTO-UPDATE DETECTOR & NOTIFIER
+// ==========================================
+const GITHUB_REPO_PATH = 'ankitpandeynine/Coursera-completer';
+const GITHUB_BRANCH_NAME = 'main';
+
+async function checkForGitHubUpdate() {
+    try {
+        const stored = await chrome.storage.local.get(['installedCommit']);
+        let localCommit = stored.installedCommit;
+        if (!localCommit) {
+            try {
+                const res = await fetch(chrome.runtime.getURL('version.json'));
+                const vJson = await res.json();
+                localCommit = vJson.commit || '21ab9c1';
+            } catch(e) {
+                localCommit = '21ab9c1';
+            }
+            await chrome.storage.local.set({ installedCommit: localCommit });
+        }
+
+        const resp = await fetch(`https://api.github.com/repos/${GITHUB_REPO_PATH}/commits/${GITHUB_BRANCH_NAME}`, {
+            headers: { 'Accept': 'application/vnd.github.v3+json' },
+            cache: 'no-store'
+        });
+
+        if (!resp.ok) {
+            console.warn('[AutoPilot BG] GitHub update check returned HTTP', resp.status);
+            return { error: `HTTP ${resp.status}`, updateAvailable: false };
+        }
+
+        const data = await resp.json();
+        const remoteSha = data.sha || '';
+        const remoteMsg = data.commit?.message?.split('\n')[0] || '';
+        const remoteDate = data.commit?.author?.date || '';
+
+        const isUpdateAvailable = !!remoteSha && !remoteSha.startsWith(localCommit.slice(0, 7));
+
+        await chrome.storage.local.set({
+            updateAvailable: isUpdateAvailable,
+            remoteCommit: remoteSha,
+            remoteCommitMsg: remoteMsg,
+            remoteCommitDate: remoteDate,
+            lastUpdateCheckTime: Date.now()
+        });
+
+        if (isUpdateAvailable) {
+            chrome.action.setBadgeText({ text: 'NEW' });
+            chrome.action.setBadgeBackgroundColor({ color: '#00E676' });
+            console.log(`[AutoPilot BG] Update available on GitHub: ${remoteSha.slice(0, 7)} - "${remoteMsg}"`);
+        } else {
+            chrome.action.setBadgeText({ text: '' });
+        }
+
+        return {
+            updateAvailable: isUpdateAvailable,
+            localCommit,
+            remoteCommit: remoteSha,
+            remoteCommitMsg: remoteMsg,
+            remoteCommitDate: remoteDate
+        };
+    } catch (err) {
+        console.warn('[AutoPilot BG] GitHub update check failed:', err);
+        return { error: err.message, updateAvailable: false };
+    }
+}
+
+// Alarms listener for hourly background update checks
+if (chrome.alarms) {
+    chrome.alarms.onAlarm.addListener((alarm) => {
+        if (alarm.name === 'check_github_update') {
+            checkForGitHubUpdate();
+        }
+    });
+    chrome.alarms.create('check_github_update', { periodInMinutes: 60 });
+}
 
 // Clean up stale/throttled model caches on startup & extension install
 async function cleanupStaleCaches() {
@@ -911,6 +996,8 @@ async function cleanupStaleCaches() {
 
 chrome.runtime.onInstalled.addListener(() => {
     cleanupStaleCaches();
+    checkForGitHubUpdate();
 });
 
 cleanupStaleCaches();
+checkForGitHubUpdate();

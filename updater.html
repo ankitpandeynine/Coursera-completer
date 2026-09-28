@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Coursera AutoPilot - 1-Click Updater</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: #0f172a;
+      color: #f8fafc;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 580px;
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 16px;
+      padding: 32px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 24px;
+      border-bottom: 1px solid #334155;
+      padding-bottom: 20px;
+    }
+
+    .logo {
+      width: 44px;
+      height: 44px;
+      border-radius: 10px;
+      box-shadow: 0 0 16px rgba(0, 230, 118, 0.35);
+    }
+
+    .title-wrap h1 {
+      font-size: 20px;
+      font-weight: 700;
+      color: #f8fafc;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .title-wrap p {
+      font-size: 13px;
+      color: #94a3b8;
+      margin-top: 3px;
+    }
+
+    /* Version Comparison Card */
+    .version-card {
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
+    }
+
+    .ver-col {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .ver-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: #64748b;
+      font-weight: 600;
+    }
+
+    .ver-val {
+      font-size: 15px;
+      font-weight: 700;
+      color: #f8fafc;
+      font-family: ui-monospace, Menlo, Monaco, monospace;
+    }
+
+    .ver-val.highlight {
+      color: #00E676;
+    }
+
+    .ver-divider {
+      font-size: 20px;
+      color: #475569;
+    }
+
+    /* Commit message */
+    .commit-box {
+      background: rgba(0, 86, 210, 0.12);
+      border: 1px solid rgba(0, 86, 210, 0.35);
+      border-radius: 10px;
+      padding: 12px 14px;
+      margin-bottom: 24px;
+      font-size: 13px;
+      color: #cbd5e1;
+      line-height: 1.45;
+    }
+    .commit-box strong {
+      color: #60a5fa;
+      display: block;
+      margin-bottom: 4px;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    /* Progress bar */
+    .progress-section {
+      margin-bottom: 24px;
+    }
+
+    .progress-bar-bg {
+      width: 100%;
+      height: 10px;
+      background: #0f172a;
+      border-radius: 999px;
+      overflow: hidden;
+      border: 1px solid #334155;
+      margin-bottom: 8px;
+    }
+
+    .progress-bar-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #0056D2, #00E676);
+      border-radius: 999px;
+      transition: width 0.3s ease;
+      box-shadow: 0 0 12px rgba(0, 230, 118, 0.5);
+    }
+
+    .progress-status {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12.5px;
+      color: #94a3b8;
+    }
+
+    /* Action buttons */
+    .btn-group {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    .btn {
+      padding: 13px 20px;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      border: none;
+      transition: all 0.2s ease;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #0056D2 0%, #00823b 100%);
+      color: #ffffff;
+      box-shadow: 0 4px 14px rgba(0, 86, 210, 0.4);
+    }
+    .btn-primary:hover:not(:disabled) {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px rgba(0, 230, 118, 0.35);
+    }
+    .btn-primary:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .btn-secondary {
+      background: #0f172a;
+      color: #94a3b8;
+      border: 1px solid #334155;
+    }
+    .btn-secondary:hover {
+      background: #1e293b;
+      color: #f8fafc;
+    }
+
+    /* Logs view */
+    .log-box {
+      background: #0b1120;
+      border: 1px solid #1e293b;
+      border-radius: 10px;
+      padding: 12px;
+      font-family: ui-monospace, Menlo, Monaco, monospace;
+      font-size: 11.5px;
+      color: #94a3b8;
+      max-height: 140px;
+      overflow-y: auto;
+      line-height: 1.5;
+    }
+    .log-box .log-entry.success { color: #00E676; }
+    .log-box .log-entry.warn { color: #f59e0b; }
+    .log-box .log-entry.error { color: #ef4444; }
+
+    /* Security Notice */
+    .security-badge {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 11.5px;
+      color: #64748b;
+      justify-content: center;
+      margin-top: 16px;
+    }
+    .security-badge svg {
+      color: #00E676;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <img src="icons/icon48.png" alt="Logo" class="logo">
+      <div class="title-wrap">
+        <h1>⚡ Coursera AutoPilot Updater</h1>
+        <p>1-Click Auto-Download, Unzip & Reload from GitHub</p>
+      </div>
+    </div>
+
+    <!-- Version comparison -->
+    <div class="version-card">
+      <div class="ver-col">
+        <span class="ver-label">Current Installed</span>
+        <span id="currentVerText" class="ver-val">Loading...</span>
+      </div>
+      <div class="ver-divider">→</div>
+      <div class="ver-col" style="text-align: right;">
+        <span class="ver-label">Latest on GitHub</span>
+        <span id="latestVerText" class="ver-val highlight">Checking...</span>
+      </div>
+    </div>
+
+    <!-- Commit detail box -->
+    <div id="commitBox" class="commit-box" style="display: none;">
+      <strong>Latest Commit Update:</strong>
+      <span id="commitMsgText">Fetching commit info...</span>
+    </div>
+
+    <!-- Progress Bar -->
+    <div class="progress-section">
+      <div class="progress-bar-bg">
+        <div id="progressBarFill" class="progress-bar-fill"></div>
+      </div>
+      <div class="progress-status">
+        <span id="progressStepText">Ready to check for updates</span>
+        <span id="progressPercentText">0%</span>
+      </div>
+    </div>
+
+    <!-- Buttons -->
+    <div class="btn-group">
+      <button id="startUpdateBtn" class="btn btn-primary">
+        <span>⚡ 1-Click Update Now</span>
+      </button>
+      <button id="downloadZipBtn" class="btn btn-secondary">
+        <span>📥 Download Latest Zip (Manual Fallback)</span>
+      </button>
+    </div>
+
+    <!-- Live Log Console -->
+    <div id="logBox" class="log-box">
+      <div class="log-entry">Connecting to Coursera AutoPilot updater engine...</div>
+    </div>
+
+    <div class="security-badge">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+      </svg>
+      <span>Safe Update: All Gemini, Groq, NVIDIA API keys and user preferences are 100% preserved.</span>
+    </div>
+  </div>
+
+  <script src="fflate.js"></script>
+  <script src="updater.js"></script>
+</body>
+</html>

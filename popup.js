@@ -572,4 +572,101 @@ document.addEventListener('DOMContentLoaded', () => {
     autoSolveCB.addEventListener('change', () => chrome.storage.local.set({ autoSolve: autoSolveCB.checked }));
     bgPlayCB.addEventListener('change', () => chrome.storage.local.set({ bgPlay: bgPlayCB.checked }));
     autoNavigateCB.addEventListener('change', () => chrome.storage.local.set({ autoNavigate: autoNavigateCB.checked }));
+
+    // ==========================================
+    // GitHub Update Banner & 1-Click Updater
+    // ==========================================
+    const updateBanner = document.getElementById('updateBanner');
+    const updateCommitSha = document.getElementById('updateCommitSha');
+    const updateCommitMsg = document.getElementById('updateCommitMsg');
+    const popupOneClickUpdateBtn = document.getElementById('popupOneClickUpdateBtn');
+    const checkUpdatesLink = document.getElementById('checkUpdatesLink');
+    const checkUpdatesMsg = document.getElementById('checkUpdatesMsg');
+    const headerVersion = document.getElementById('headerVersion');
+
+    function refreshUpdateUI(storageData) {
+        if (!updateBanner) return;
+        const manifest = chrome.runtime.getManifest();
+        if (headerVersion && manifest.version) {
+            headerVersion.textContent = `v${manifest.version}`;
+        }
+
+        const isAvailable = storageData.updateAvailable;
+        const remoteSha = storageData.remoteCommit || '';
+        const installedSha = storageData.installedCommit || '';
+
+        // STRICT RULE: Only show update if there is a new commit on GitHub that is NOT yet installed!
+        if (isAvailable && remoteSha && (!installedSha || !remoteSha.startsWith(installedSha.slice(0, 7)))) {
+            updateBanner.style.display = 'block';
+            if (updateCommitSha) updateCommitSha.textContent = remoteSha.slice(0, 7);
+            if (updateCommitMsg) {
+                const msg = storageData.remoteCommitMsg || 'New code pushed to GitHub repository.';
+                updateCommitMsg.textContent = msg;
+            }
+        } else {
+            // NEVER show update when already on latest version!
+            updateBanner.style.display = 'none';
+        }
+    }
+
+    // Load initial update status from storage
+    chrome.storage.local.get(['updateAvailable', 'remoteCommit', 'remoteCommitMsg', 'installedCommit'], (res) => {
+        refreshUpdateUI(res);
+    });
+
+    // Listen for storage changes if background updates it
+    chrome.storage.onChanged.addListener((changes) => {
+        if (changes.updateAvailable || changes.remoteCommit || changes.installedCommit) {
+            chrome.storage.local.get(['updateAvailable', 'remoteCommit', 'remoteCommitMsg', 'installedCommit'], (res) => {
+                refreshUpdateUI(res);
+            });
+        }
+    });
+
+    // 1-Click Update button -> Opens dedicated 1-Click Updater tab with auto=1
+    if (popupOneClickUpdateBtn) {
+        popupOneClickUpdateBtn.addEventListener('click', () => {
+            chrome.tabs.create({ url: chrome.runtime.getURL('updater.html?auto=1') });
+        });
+    }
+
+    // Manual "Check for Updates" link in footer
+    if (checkUpdatesLink) {
+        checkUpdatesLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (checkUpdatesMsg) {
+                checkUpdatesMsg.style.display = 'block';
+                checkUpdatesMsg.style.color = '#80d8ff';
+                checkUpdatesMsg.textContent = 'Checking GitHub...';
+            }
+
+            chrome.runtime.sendMessage({ type: 'CHECK_FOR_UPDATES' }, (response) => {
+                if (chrome.runtime.lastError || !response || response.error) {
+                    if (checkUpdatesMsg) {
+                        checkUpdatesMsg.style.color = '#ffd740';
+                        checkUpdatesMsg.textContent = 'Could not reach GitHub (offline/rate-limited)';
+                        setTimeout(() => { checkUpdatesMsg.style.display = 'none'; }, 4000);
+                    }
+                    return;
+                }
+
+                if (response.updateAvailable) {
+                    if (checkUpdatesMsg) {
+                        checkUpdatesMsg.style.color = '#00E676';
+                        checkUpdatesMsg.textContent = '🚀 New update available on GitHub!';
+                    }
+                    chrome.storage.local.get(['updateAvailable', 'remoteCommit', 'remoteCommitMsg', 'installedCommit'], (res) => {
+                        refreshUpdateUI(res);
+                    });
+                } else {
+                    if (checkUpdatesMsg) {
+                        checkUpdatesMsg.style.color = '#00E676';
+                        checkUpdatesMsg.textContent = `✓ Up to date (${(response.localCommit || '').slice(0, 7)})`;
+                        setTimeout(() => { checkUpdatesMsg.style.display = 'none'; }, 4000);
+                    }
+                    if (updateBanner) updateBanner.style.display = 'none';
+                }
+            });
+        });
+    }
 });
