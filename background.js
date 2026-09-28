@@ -904,16 +904,6 @@ async function checkForGitHubUpdate() {
     try {
         const stored = await chrome.storage.local.get(['installedCommit']);
         let localCommit = stored.installedCommit;
-        if (!localCommit) {
-            try {
-                const res = await fetch(chrome.runtime.getURL('version.json'));
-                const vJson = await res.json();
-                localCommit = vJson.commit || '21ab9c1';
-            } catch(e) {
-                localCommit = '21ab9c1';
-            }
-            await chrome.storage.local.set({ installedCommit: localCommit });
-        }
 
         const resp = await fetch(`https://api.github.com/repos/${GITHUB_REPO_PATH}/commits/${GITHUB_BRANCH_NAME}`, {
             headers: { 'Accept': 'application/vnd.github.v3+json' },
@@ -930,7 +920,13 @@ async function checkForGitHubUpdate() {
         const remoteMsg = data.commit?.message?.split('\n')[0] || '';
         const remoteDate = data.commit?.author?.date || '';
 
-        const isUpdateAvailable = !!remoteSha && !remoteSha.startsWith(localCommit.slice(0, 7));
+        // On first run without stored commit, initialize installedCommit to current remote SHA
+        if (!localCommit && remoteSha) {
+            localCommit = remoteSha;
+            await chrome.storage.local.set({ installedCommit: remoteSha, updateAvailable: false });
+        }
+
+        const isUpdateAvailable = !!remoteSha && !!localCommit && !remoteSha.startsWith(localCommit.slice(0, 7));
 
         await chrome.storage.local.set({
             updateAvailable: isUpdateAvailable,
