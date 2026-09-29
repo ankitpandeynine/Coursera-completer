@@ -55,5 +55,6 @@ English
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 10.2 | 2026-09-30 | Added Super Bypass Video Mode (1-second playback auto-end trigger), GitHub 1-click in-browser updater, and strict sidebar green tick confirmation. |
 | 8.0 | 2026-09-21 | Modularized codebase into 3 dedicated feature files (`video_playback.js`, `background_playback.js`, `ai_solver.js`). Added Main-World Page Visibility API spoofing for background play. Fixed modern Coursera item navigation and LaTeX equation parsing. |
 | 7.0 | 2026-08-03 | Speed enforcement and structured Gemini solver flow. |

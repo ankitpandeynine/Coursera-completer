@@ -1,4 +1,4 @@
-# ⚡ Coursera AI AutoPilot (v9.8)
+# ⚡ Coursera AI AutoPilot (v10.2)
 
 <p align="center">
   <img src="icons/icon128.png" alt="Coursera AI AutoPilot Logo" width="110" height="110" style="border-radius: 24px; box-shadow: 0 8px 24px rgba(0, 86, 210, 0.4);">
@@ -10,34 +10,51 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-9.8-0056D2?style=flat-square" alt="Version">
-  <img src="https://img.shields.io/badge/Manifest-V3-success?style=flat-square" alt="Manifest V3">
-  <img src="https://img.shields.io/badge/AI%20Providers-Gemini%20%7C%20Groq%20%7C%20OpenRouter%20%7C%20NVIDIA-8A2BE2?style=flat-square" alt="AI Providers">
+  <a href="https://github.com/ankitpandeynine/Coursera-completer/releases"><img src="https://img.shields.io/badge/Version-10.2-0056D2?style=flat-square&logo=googlechrome&logoColor=white" alt="Version"></a>
+  <img src="https://img.shields.io/badge/Manifest-V3-success?style=flat-square&logo=w3c&logoColor=white" alt="Manifest V3">
+  <a href="https://github.com/ankitpandeynine/Coursera-completer"><img src="https://img.shields.io/github/downloads/ankitpandeynine/Coursera-completer/total?style=flat-square&color=blue&logo=github" alt="Downloads"></a>
+  <img src="https://komarev.com/ghpvc/?username=ankitpandeynine-coursera&label=Views&color=00e676&style=flat-square" alt="Views Count">
+  <img src="https://visitor-badge.laobi.icu/badge?page_id=ankitpandeynine.Coursera-completer" alt="Visitors">
+  <a href="https://github.com/ankitpandeynine/Coursera-completer/stargazers"><img src="https://img.shields.io/github/stars/ankitpandeynine/Coursera-completer?style=flat-square&logo=github&color=gold" alt="GitHub Stars"></a>
+  <a href="https://github.com/ankitpandeynine/Coursera-completer/network/members"><img src="https://img.shields.io/github/forks/ankitpandeynine/Coursera-completer?style=flat-square&logo=github" alt="GitHub Forks"></a>
   <img src="https://img.shields.io/badge/License-MIT-blue?style=flat-square" alt="License">
 </p>
 
 ---
 
-## Guide Video link - 
-https://youtu.be/hsEq-6G7GVk?si=ml1vR7fClMGV_5a1
+## 🎥 Video Guide & Setup Walkthrough
+
+Watch the complete visual setup guide and live automation demonstration:
+
+<p align="center">
+  <a href="https://youtu.be/hsEq-6G7GVk" target="_blank" rel="noopener noreferrer">
+    <img src="https://img.youtube.com/vi/hsEq-6G7GVk/maxresdefault.jpg" alt="Coursera AutoPilot Setup Guide" width="680" style="border-radius: 12px; box-shadow: 0 6px 20px rgba(0,0,0,0.3); max-width: 100%;">
+  </a>
+  <br>
+  <a href="https://youtu.be/hsEq-6G7GVk" target="_blank" rel="noopener noreferrer">
+    <b>▶️ Click here to watch the full tutorial on YouTube</b>
+  </a>
+</p>
 
 ---
-## ✨ Features
 
+## ✨ Key Features
+
+* **⚡ Super Bypass Video Mode (NEW in v10.2):** Plays lecture videos for 1 second, then automatically triggers the End button and seamlessly lets Coursera register progress beacons and verify completion before auto-navigating. Accessible right beside the 16x button in the popup and on the on-player floating bar!
+* **🚀 1-Click In-Browser Updater (NEW):** Automatically checks GitHub for new commits and releases. Shows an update banner only when new code is pushed and downloads, unzips, and applies updates in 1 click while 100% preserving all your AI API keys and preferences.
 * **🧠 Multi-Provider AI Quiz Auto-Solver (Radios, Checkboxes & Free-Text Fields):** Automatically parses practice quiz questions, code snippets, multiple-choice options, formulas, and free-text/fill-in-the-blank input fields. Dynamically queries AI models, fills text answers via React state synchronization, marks correct choices, agrees to honor codes, and submits assignments.
 * **💬 Multi-Turn AI Coach & Dialogue Automation:** Automatically converses with Coursera's interactive AI Dialogue coach across every turn. Reads replies from the coach, tracks conversation history, drafts humanized technical answers, types and sends replies, and clicks "End Dialogue" with modal confirmation upon completion.
 * **🛡️ Strict Green Tick Confirmation & Reattempt-Once Safeguard:** Inspects the sidebar outline to verify items are marked green before advancing. If an item or video is completed but not marked green, the extension reattempts it strictly once and proceeds forward, ensuring courses are 100% completed without getting stuck in infinite loops.
-* **⏱️ Global Stuck Watchdogs (3-Min Auto-Refresh & 2-Min Auto-Skip):** If a page freezes or remains stuck for more than 3 minutes, the extension automatically refreshes the page once to unfreeze the session. If stuck for more than 2 minutes without video playback, it automatically advances to the next item.
-* **⏩ Optimized Hybrid Speed Force Engine:** Seamlessly enforces playback speeds (0.25x - 16x) with pitch correction without stalling video buffering or causing media playback freezes.
 * **🎯 Course Focus Modes:**
   * **🎯 Complete All Items:** Sequentially completes all videos, readings, discussions, and quizzes.
   * **🧠 Practice Quizzes Only:** Skips videos and readings, jumping directly to practice questions and quizzes.
   * **🎬 Videos & Readings Only:** Focuses exclusively on lectures and readings, skipping quizzes and assignments.
   * **⚡ Incomplete Items Only:** Skips every item already marked green in the sidebar, jumping straight to pending items.
+* **⏩ Optimized Hybrid Speed Force Engine:** Seamlessly enforces playback speeds (0.25x - 16x) with pitch correction without stalling video buffering or causing media playback freezes.
+* **⏱️ Global Stuck Watchdogs (3-Min Auto-Refresh & 2-Min Auto-Skip):** If a page freezes or remains stuck for more than 3 minutes, the extension automatically refreshes the page once to recover. If stuck for more than 2 minutes without video playback, it automatically advances to the next item.
 * **👻 True Background Play:** Overrides visibility APIs (`document.hidden`, `visibilityState`) so lectures keep playing even when you switch tabs or minimize the window.
 * **⏭️ Smart Auto-Navigation:** Detects video conclusion, passing grades, or completed readings and transitions to the next course item seamlessly.
 * **🛑 In-Video Checkpoint & Popup Skipper:** Bypasses mid-video pause checkpoints, practice popups, and dismisses alert dialogs.
-* **⏱️ Locked Module Discrimination:** Automatically identifies locked assignments (`"You still have some learning to complete"`) or items taking longer than 20s to load, gracefully advancing without infinite loops.
 
 ---
 
@@ -97,7 +114,7 @@ The extension requires an API key from at least **one** of the supported provide
 4. **Enable Automation:**
    * Toggle **"Auto-Solve Quizzes"** to **ON**.
    * Toggle **"Auto-Navigate"** to **ON**.
-   * Pick your preferred primary provider from the dropdown (or leave as Google Gemini).
+   * Select your preferred primary provider from the dropdown (or leave as Auto-Failover).
 5. **Done!** Your key is automatically saved to your local browser storage. The extension will automatically test and cycle through models with automatic failover!
 
 ---
@@ -130,13 +147,25 @@ The extension requires an API key from at least **one** of the supported provide
 ## 🎮 How to Use on Coursera
 
 1. Open any Coursera course page (e.g., `coursera.org/learn/...`).
-2. Click the **Coursera AutoPilot** icon in your toolbar, enter your API key, and configure your desired playback speed (e.g., `3.0x`).
+2. Click the **Coursera AutoPilot** icon in your toolbar, enter your API key, and configure your desired playback speed (e.g., `2.0x` or `3.0x`).
 3. Click on any video, reading, or assignment.
 4. **Hands-free Automation:**
-   * **Videos:** Plays automatically at chosen speed, skips checkpoints, and auto-navigates upon completion.
+   * **Videos:** Plays automatically at chosen speed, skips checkpoints, and auto-navigates upon completion. Turn on **⚡ Super Bypass Video Mode** to auto-advance after 1 second!
    * **Readings:** Waits the required duration and clicks *"Mark as completed"*.
    * **Quizzes & Assignments:** Detects questions, queries Gemini/Groq, marks correct answers, accepts honor codes, and submits.
    * **AI Dialogues:** Reads scenarios, writes humanized student responses, and submits replies to Coursera AI coaches.
+
+---
+
+## ☕ Support the Project (Buy Me a Coffee)
+
+If Coursera AutoPilot helped you save time, complete courses, and learn faster, consider supporting development!
+
+<p align="center">
+  <img src="assets/upi_qr.png" alt="UPI QR Code - ankitp9781@oksbi" width="220" style="border-radius: 14px; box-shadow: 0 4px 18px rgba(0, 0, 0, 0.25);"><br><br>
+  <b>UPI ID:</b> <code>ankitp9781@oksbi</code><br>
+  <i>Scan using Google Pay, PhonePe, Paytm, BHIM, or any UPI App</i>
+</p>
 
 ---
 
@@ -149,7 +178,11 @@ The extension requires an API key from at least **one** of the supported provide
 ├── main_world.js           # Stealth speed-spoofing engine & visibility spoofer
 ├── popup.html              # Modern, sleek extension control interface
 ├── popup.js                # Settings manager, real-time log streaming & solution viewer
+├── updater.js              # 1-Click in-browser updater engine with zip extractor
+├── updater.html            # Updater progress modal interface
+├── fflate.js               # Lightweight in-memory unzipper for seamless updates
 ├── icons/                  # High-resolution extension brand icons (16, 32, 48, 128px)
+├── assets/                 # Project assets & UPI QR code
 ├── CHROMEWEBSTORE.md       # Chrome Web Store metadata & store description
 └── scratch/                # Unit test suites & automated validation scripts
 ```
