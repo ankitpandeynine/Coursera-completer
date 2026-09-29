@@ -14,6 +14,27 @@ document.addEventListener('DOMContentLoaded', () => {
     const autoSolveCB = document.getElementById('autoSolveCB');
     const bgPlayCB = document.getElementById('bgPlayCB');
     const autoNavigateCB = document.getElementById('autoNavigateCB');
+    const superBypassVideoBtn = document.getElementById('superBypassVideoBtn');
+    const superBypassVideoCB = document.getElementById('superBypassVideoCB');
+
+    function updateSuperBypassUI(enabled) {
+        if (superBypassVideoCB) superBypassVideoCB.checked = !!enabled;
+        if (superBypassVideoBtn) {
+            if (enabled) {
+                superBypassVideoBtn.innerText = '⚡ Super Bypass: ON';
+                superBypassVideoBtn.style.background = 'linear-gradient(135deg, rgba(255, 152, 0, 0.4) 0%, rgba(255, 87, 34, 0.4) 100%)';
+                superBypassVideoBtn.style.border = '1px solid #ff9800';
+                superBypassVideoBtn.style.color = '#ffb74d';
+                superBypassVideoBtn.style.boxShadow = '0 0 10px rgba(255, 152, 0, 0.4)';
+            } else {
+                superBypassVideoBtn.innerText = '⚡ Super Bypass: OFF';
+                superBypassVideoBtn.style.background = 'rgba(255, 152, 0, 0.12)';
+                superBypassVideoBtn.style.border = '1px solid rgba(255, 152, 0, 0.4)';
+                superBypassVideoBtn.style.color = '#ffa726';
+                superBypassVideoBtn.style.boxShadow = 'none';
+            }
+        }
+    }
 
     function updateSpeedInjectionUI(enabled) {
         if (!speedToggleStatus) return;
@@ -329,12 +350,14 @@ document.addEventListener('DOMContentLoaded', () => {
     function refreshStorage() {
         chrome.storage.local.get([
             'speedInjection', 'playbackSpeed', 'forceMode', 'preferredProvider', 'secondaryProvider', 'dualCourseMultiAI',
-            'activeCourseAssignments', 'focusMode', 'strictCompletion',
+            'activeCourseAssignments', 'focusMode', 'strictCompletion', 'superBypassVideoMode',
             'geminiApiKey', 'groqApiKey', 'openRouterApiKey', 'nvidiaApiKey',
             'autoSolve', 'bgPlay', 'autoNavigate',
             'activityLogs', 'lastGeminiQuizData', 'providerCooldowns'
         ], (data) => {
             cachedStorage = data;
+
+            updateSuperBypassUI(!!data.superBypassVideoMode);
 
             if (speedInjectionCB) {
                 const isSpeedEnabled = data.speedInjection !== undefined ? !!data.speedInjection : true;
@@ -432,6 +455,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (changes.focusMode && focusModeSelect) {
             focusModeSelect.value = changes.focusMode.newValue || 'all';
         }
+        if (changes.superBypassVideoMode !== undefined) {
+            updateSuperBypassUI(!!changes.superBypassVideoMode.newValue);
+        }
         if (changes.strictCompletion && strictCompletionCB) {
             strictCompletionCB.checked = changes.strictCompletion.newValue !== undefined ? changes.strictCompletion.newValue : true;
         }
@@ -481,6 +507,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Preset Speed Buttons
     document.querySelectorAll('.speed-preset-btn').forEach(btn => {
+        if (!btn.dataset.speed) return;
         btn.addEventListener('click', () => {
             const speed = parseFloat(btn.dataset.speed) || 2.0;
             speedInput.value = speed;
@@ -572,6 +599,22 @@ document.addEventListener('DOMContentLoaded', () => {
     autoSolveCB.addEventListener('change', () => chrome.storage.local.set({ autoSolve: autoSolveCB.checked }));
     bgPlayCB.addEventListener('change', () => chrome.storage.local.set({ bgPlay: bgPlayCB.checked }));
     autoNavigateCB.addEventListener('change', () => chrome.storage.local.set({ autoNavigate: autoNavigateCB.checked }));
+
+    // Super Bypass Video Mode listeners
+    if (superBypassVideoBtn) {
+        superBypassVideoBtn.addEventListener('click', () => {
+            const newState = !superBypassVideoCB?.checked;
+            chrome.storage.local.set({ superBypassVideoMode: newState });
+            updateSuperBypassUI(newState);
+        });
+    }
+    if (superBypassVideoCB) {
+        superBypassVideoCB.addEventListener('change', () => {
+            const newState = superBypassVideoCB.checked;
+            chrome.storage.local.set({ superBypassVideoMode: newState });
+            updateSuperBypassUI(newState);
+        });
+    }
 
     // ==========================================
     // GitHub Update Banner & 1-Click Updater

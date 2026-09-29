@@ -35,6 +35,7 @@
         autoSolve: true,
         focusMode: 'all', // 'all' | 'quizzes_only' | 'videos_only' | 'pending_only'
         strictCompletion: true,
+        superBypassVideoMode: false,
         geminiApiKey: '',
         groqApiKey: '',
         openRouterApiKey: '',
@@ -45,6 +46,8 @@
     let videoReplayMap = {}; // Tracks replayed videos by path to strictly replay only ONCE
     let itemReattemptMap = {}; // Tracks reattempt count by item path to strictly reattempt only ONCE
     let videoEndedFirstSeenTime = 0; // Timestamp when video first ended on current page
+    let hasSuperBypassedCurrentVideo = false; // Flag to ensure Super Bypass triggers once per video
+    let videoPlaybackStartTime = 0; // Timestamp when active video playback started
     let dialogueTurnCount = 1; // Counter for dialogue message turns
     let sentDialogueAnswers = []; // History of answers sent by AutoPilot in dialogue
 
@@ -138,7 +141,7 @@
        ======================================================================== */
     chrome.storage.local.get([
         'speedInjection', 'playbackSpeed', 'forceMode', 'bgPlay', 'autoNavigate', 'autoSolve',
-        'focusMode', 'strictCompletion',
+        'focusMode', 'strictCompletion', 'superBypassVideoMode',
         'geminiApiKey', 'groqApiKey', 'openRouterApiKey', 'nvidiaApiKey', 'preferredProvider'
     ], (data) => {
         if (data.speedInjection !== undefined) state.speedInjection = data.speedInjection;
@@ -149,6 +152,7 @@
         if (data.autoSolve !== undefined) state.autoSolve = data.autoSolve;
         if (data.focusMode) state.focusMode = data.focusMode;
         if (data.strictCompletion !== undefined) state.strictCompletion = data.strictCompletion;
+        if (data.superBypassVideoMode !== undefined) state.superBypassVideoMode = !!data.superBypassVideoMode;
         if (data.geminiApiKey) state.geminiApiKey = data.geminiApiKey.trim();
         if (data.groqApiKey) state.groqApiKey = data.groqApiKey.trim();
         if (data.openRouterApiKey) state.openRouterApiKey = data.openRouterApiKey.trim();
@@ -204,6 +208,12 @@
         if (changes.strictCompletion !== undefined) {
             state.strictCompletion = changes.strictCompletion.newValue !== undefined ? changes.strictCompletion.newValue : true;
             addLog(`Strict Completion Guard set to: ${state.strictCompletion}`, 'info');
+        }
+        if (changes.superBypassVideoMode !== undefined) {
+            state.superBypassVideoMode = !!changes.superBypassVideoMode.newValue;
+            updateSpeedBadge();
+            addLog(`⚡ Super Bypass Video Mode set to: ${state.superBypassVideoMode ? 'ON (Auto-End after 1s)' : 'OFF'}`, 'info');
+            showStatus(`⚡ Super Bypass Video Mode: ${state.superBypassVideoMode ? 'ON' : 'OFF'}`);
         }
         if (changes.geminiApiKey !== undefined) {
             state.geminiApiKey = (changes.geminiApiKey.newValue || '').trim();
@@ -356,6 +366,12 @@
                 native2xBtn.style.color = '#80d8ff';
             }
         }
+        const bypassBtn = document.getElementById('coursera-speed-bypass');
+        if (bypassBtn) {
+            bypassBtn.innerText = `⚡ Bypass: ${state.superBypassVideoMode ? 'ON' : 'OFF'}`;
+            bypassBtn.style.background = state.superBypassVideoMode ? 'rgba(255, 152, 0, 0.35)' : 'rgba(255, 152, 0, 0.15)';
+            bypassBtn.style.border = state.superBypassVideoMode ? '1px solid #ff9800' : '1px solid rgba(255, 152, 0, 0.4)';
+        }
     }
 
     function injectSpeedBadge(media) {
@@ -380,6 +396,7 @@
             <button id="coursera-speed-minus" title="Decrease Speed (Hotkey: [)" style="background: rgba(255,255,255,0.2); border: none; color: white; border-radius: 50%; width: 22px; height: 22px; cursor: pointer; font-size: 13px; line-height: 22px;">-</button>
             <button id="coursera-speed-plus" title="Increase Speed (Hotkey: ])" style="background: rgba(255,255,255,0.2); border: none; color: white; border-radius: 50%; width: 22px; height: 22px; cursor: pointer; font-size: 13px; line-height: 22px;">+</button>
             <button id="coursera-speed-end" title="Fast-forward to End" style="background: rgba(0, 230, 118, 0.25); border: 1px solid rgba(0, 230, 118, 0.4); color: #00E676; border-radius: 12px; padding: 2px 8px; cursor: pointer; font-size: 11px; font-weight: bold; margin-left: 2px;">⏩ End</button>
+            <button id="coursera-speed-bypass" title="Toggle Super Bypass Video Mode (Plays 1s then auto-clicks End)" style="background: ${state.superBypassVideoMode ? 'rgba(255, 152, 0, 0.35)' : 'rgba(255, 152, 0, 0.15)'}; border: 1px solid ${state.superBypassVideoMode ? '#ff9800' : 'rgba(255, 152, 0, 0.4)'}; color: #ffb74d; border-radius: 12px; padding: 2px 8px; cursor: pointer; font-size: 11px; font-weight: bold; margin-left: 2px;">⚡ Bypass: ${state.superBypassVideoMode ? 'ON' : 'OFF'}</button>
         `;
 
         document.body.appendChild(badge);
@@ -431,6 +448,17 @@
                 addLog(`Fast-forwarded ${m.tagName.toLowerCase()} to end.`, "info");
             }
         });
+
+        const bypassBtn = badge.querySelector('#coursera-speed-bypass');
+        if (bypassBtn) {
+            bypassBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                state.superBypassVideoMode = !state.superBypassVideoMode;
+                chrome.storage.local.set({ superBypassVideoMode: state.superBypassVideoMode });
+                updateSpeedBadge();
+                showStatus(`⚡ Super Bypass Video Mode: ${state.superBypassVideoMode ? 'ON' : 'OFF'}`);
+            });
+        }
     }
 
     // Global keyboard hotkeys for instant speed tuning
@@ -2550,6 +2578,8 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
                 lastKnownUrl = window.location.href;
                 pageArrivalTime = Date.now();
                 videoEndedFirstSeenTime = 0;
+                hasSuperBypassedCurrentVideo = false;
+                videoPlaybackStartTime = 0;
                 hasMarkedCurrentReading = false;
                 lastStartClickTime = 0;
                 lastStartClickUrl = '';
@@ -2722,6 +2752,30 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
                     });
                 }
 
+                // A2. Super Bypass Video Mode: Play video as it does, and after 1 sec automatically click that End button
+                if (state.superBypassVideoMode && !hasSuperBypassedCurrentVideo && video && !video.ended && video.duration > 2) {
+                    if (!video.paused && !video.seeking) {
+                        if (!videoPlaybackStartTime) {
+                            videoPlaybackStartTime = Date.now();
+                        }
+                        const playedDuration = Date.now() - videoPlaybackStartTime;
+                        if (playedDuration >= 1000 || video.currentTime >= 1.0) {
+                            hasSuperBypassedCurrentVideo = true;
+                            addLog("⚡ Super Bypass Video Mode: Played 1s, automatically clicking End button...", "success");
+                            showStatus("⚡ Super Bypass: Played 1s, jumping to end...");
+                            const endBtn = document.getElementById('coursera-speed-end');
+                            if (endBtn) {
+                                endBtn.click();
+                            } else {
+                                video.currentTime = Math.max(0, video.duration - 2);
+                                try {
+                                    video.dispatchEvent(new Event('timeupdate', { bubbles: true }));
+                                } catch(e) {}
+                            }
+                        }
+                    }
+                }
+
                 // B. Skip mid-video checkpoints, quizzes, and prompts
                 const skipBtn = Array.from(document.querySelectorAll('button, a')).find(btn => {
                     if (btn.disabled || btn.getAttribute('aria-disabled') === 'true') return false;
@@ -2798,6 +2852,8 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
                         if (reattemptCount === 0) {
                             itemReattemptMap[curPath] = 1;
                             videoEndedFirstSeenTime = 0;
+                            videoPlaybackStartTime = 0;
+                            hasSuperBypassedCurrentVideo = false;
                             video.currentTime = 0;
                             video.play().catch(() => {});
                             addLog("Soft Confirmation Rule: Video ended but green tick not confirmed! Replaying video once at 2x to secure credit...", "warn");

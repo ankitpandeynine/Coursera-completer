@@ -578,7 +578,7 @@
       <img src="icons/icon32.png" alt="cA logo" style="width: 22px; height: 22px; border-radius: 5px; box-shadow: 0 0 8px rgba(0, 230, 118, 0.3);">
       <h3 style="margin: 0;">⚡ Coursera AutoPilot</h3>
     </div>
-    <span id="headerVersion" class="version">v10.1</span>
+    <span id="headerVersion" class="version">v10.2</span>
   </div>
 
   <!-- Update Notification Banner (Shown ONLY when latest version is available on GitHub!) -->
@@ -636,6 +636,7 @@
         <button type="button" class="speed-preset-btn" data-speed="4.0" style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.2); color: #ddd; border-radius: 6px; padding: 4px 8px; font-size: 11px; font-weight: 600; cursor: pointer;">4.0x</button>
         <button type="button" class="speed-preset-btn" data-speed="8.0" style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.2); color: #ddd; border-radius: 6px; padding: 4px 8px; font-size: 11px; font-weight: 600; cursor: pointer;">8.0x</button>
         <button type="button" class="speed-preset-btn" data-speed="16.0" style="background: rgba(255, 68, 68, 0.2); border: 1px solid #ff4444; color: #ff8888; border-radius: 6px; padding: 4px 8px; font-size: 11px; font-weight: 700; cursor: pointer;" title="Maximum hardware playback speed">16x (Max)</button>
+        <button type="button" id="superBypassVideoBtn" style="background: rgba(255, 152, 0, 0.12); border: 1px solid rgba(255, 152, 0, 0.4); color: #ffa726; border-radius: 6px; padding: 4px 10px; font-size: 11px; font-weight: 700; cursor: pointer; transition: all 0.2s; white-space: nowrap;" title="Super Bypass Video Mode: Automatically clicks the End button after 1s of playback">⚡ Super Bypass: OFF</button>
       </div>
     </div>
 
@@ -818,6 +819,13 @@
       <label class="checkbox-label">
         <input type="checkbox" id="autoNavigateCB" checked> 
         <span>Auto-Navigate Next Item</span>
+      </label>
+    </div>
+
+    <div class="control-group">
+      <label class="checkbox-label" title="Plays video as it does, then after 1 second automatically clicks the End button and lets the rest of AutoPilot complete and advance normally.">
+        <input type="checkbox" id="superBypassVideoCB"> 
+        <span>⚡ Super Bypass Video Mode (Auto-End after 1s)</span>
       </label>
     </div>
   </div>
