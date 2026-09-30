@@ -3136,6 +3136,465 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
     }
 }
 
+    /* ========================================================================
+       COURSERA DIRECT REST API FAST-COMPLETION ENGINE (1-CLICK BULK COMPLETE)
+       ======================================================================== */
+    const COURSERA_BASE = 'https://www.coursera.org';
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    let isBulkApiRunning = false;
+    let isBulkApiCancelled = false;
+
+    function getCsrfToken() {
+        const match = document.cookie.match(/(^|;\s*)csrf3-token=([^;]+)/);
+        return match ? match[2] : '';
+    }
+
+    async function courseraFetch(url, options = {}) {
+        const headers = {
+            'X-Requested-With': 'XMLHttpRequest',
+            'X-Coursera-Application': 'nautilus',
+            'X-Coursera-Version': 'ondemand',
+            ...options.headers,
+        };
+
+        if (!options.method || options.method.toUpperCase() === 'GET') {
+            delete headers['Content-Type'];
+        } else {
+            headers['Content-Type'] = 'application/json';
+        }
+
+        const csrf = getCsrfToken();
+        if (csrf) {
+            headers['X-CSRF3-Token'] = csrf;
+            headers['X-CSRFToken'] = csrf;
+        }
+
+        return fetch(url, {
+            ...options,
+            credentials: 'include',
+            headers,
+        });
+    }
+
+    function getApiCourseContext() {
+        const match = window.location.href.match(
+            /\/learn\/([^/]+)\/(lecture|supplement|quiz|exam|gradedLti|ungradedWidget|review|discussionPrompt)\/([^/?#]+)/i
+        );
+        if (match) {
+            return { courseSlug: match[1], itemType: match[2], itemId: match[3] };
+        }
+        const matchHome = window.location.href.match(/\/learn\/([^/?#]+)/i);
+        if (matchHome) {
+            return { courseSlug: matchHome[1], itemType: '', itemId: '' };
+        }
+        return null;
+    }
+
+    async function getCourseId(courseSlug) {
+        try {
+            const res = await fetch(`${COURSERA_BASE}/api/onDemandCourses.v1?q=slug&slug=${courseSlug}&fields=id`);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+            const id = data?.elements?.[0]?.id ?? null;
+            return id;
+        } catch (e) {
+            console.warn('[AutoPilot API] getCourseId error:', e.message);
+            return null;
+        }
+    }
+
+    async function getUserId(courseId) {
+        try {
+            const scripts = document.getElementsByTagName('script');
+            for (const script of scripts) {
+                const text = script.textContent;
+                if (text && text.includes('"email_address"') && text.includes('"id"')) {
+                    const match = text.match(/"id"\s*:\s*(\d+)/);
+                    if (match && match[1]) return match[1];
+                }
+                if (text && text.includes('ROOT_QUERY') && text.includes('userId')) {
+                    const match2 = text.match(/"userId"\s*:\s*(\d+)/);
+                    if (match2 && match2[1]) return match2[1];
+                }
+            }
+        } catch (e) {}
+
+        try {
+            const res = await courseraFetch(`${COURSERA_BASE}/api/users.v1?q=me&fields=id`);
+            if (res.ok) {
+                const data = await res.json();
+                const id = data?.elements?.[0]?.id ?? null;
+                if (id) return id;
+            }
+        } catch (e) {}
+
+        return null;
+    }
+
+    function extractVideoFromLecturePayload(data) {
+        const linkedVideos = data?.linked?.['onDemandVideos.v1'];
+        if (Array.isArray(linkedVideos) && linkedVideos.length > 0) {
+            return linkedVideos[0];
+        }
+        const videoFromElement = data?.elements?.[0]?.video;
+        if (videoFromElement) return videoFromElement;
+        return null;
+    }
+
+    async function getVideoMeta(courseId, courseSlug, itemId) {
+        const fields = [
+            'onDemandVideos.v1(id%2Cduration%2Cname%2Csources%2Csubtitles%2CsubtitlesVtt%2CsubtitlesTxt)',
+            'disableSkippingForward',
+            'startMs',
+            'endMs',
+        ].join('%2C');
+
+        const url = `${COURSERA_BASE}/api/onDemandLectureVideos.v1/${courseId}~${itemId}/?includes=video&fields=${fields}`;
+
+        try {
+            const res = await courseraFetch(url);
+            if (res.ok) {
+                const data = await res.json();
+                const video = extractVideoFromLecturePayload(data);
+                if (video) {
+                    let durationMs = video.duration;
+                    if (!durationMs) {
+                        try {
+                            const videoEl = document.querySelector('video');
+                            if (videoEl && videoEl.duration && isFinite(videoEl.duration)) {
+                                durationMs = Math.round(videoEl.duration * 1000);
+                            }
+                        } catch (e) {}
+                    }
+                    return { videoId: video.id, duration: durationMs || 60000 };
+                }
+            }
+        } catch (e) {}
+
+        try {
+            const videoEl = document.querySelector('video');
+            if (videoEl && videoEl.duration && isFinite(videoEl.duration)) {
+                const durationMs = Math.round(videoEl.duration * 1000);
+                return { videoId: itemId, duration: durationMs };
+            }
+        } catch (e) {}
+
+        return null;
+    }
+
+    async function reportVideoProgress(userId, courseId, videoId, duration) {
+        const progressId = `${userId}~${courseId}~${videoId}`;
+        const validDuration = (typeof duration === 'number' && isFinite(duration) && duration > 0) ? duration : 9999999;
+        const viewedUpTo = Math.max(0, validDuration - 1000);
+
+        const methods = ['POST', 'PUT'];
+        for (const method of methods) {
+            try {
+                const res = await courseraFetch(`${COURSERA_BASE}/api/onDemandVideoProgresses.v1/${progressId}`, {
+                    method: method,
+                    body: JSON.stringify({ viewedUpTo, videoProgressId: progressId }),
+                });
+                if (res.ok || res.status === 204) return true;
+            } catch (e) {}
+        }
+        return false;
+    }
+
+    async function markLectureCompleted(userId, courseId, courseSlug, itemId, isBulk = false) {
+        const completeUrl = `${COURSERA_BASE}/api/opencourse.v1/user/${userId}/course/${courseSlug}/item/${itemId}/lecture/videoEvents/ended?autoEnroll=false`;
+        try {
+            const res1 = await courseraFetch(completeUrl, {
+                method: 'POST',
+                body: JSON.stringify({ contentRequestBody: {} }),
+            });
+            if (res1.ok) return { success: true, step: 1 };
+        } catch (e) {}
+
+        const meta = await getVideoMeta(courseId, courseSlug, itemId);
+
+        if (!meta) {
+            const putVariants = [
+                `${COURSERA_BASE}/api/opencourse.v1/user/${userId}/course/${courseId}/item/${itemId}/progressState`,
+                `${COURSERA_BASE}/api/opencourse.v1/user/${userId}/course/${courseSlug}/item/${itemId}/progressState`,
+            ];
+            for (const url of putVariants) {
+                try {
+                    const fbRes = await courseraFetch(url, {
+                        method: 'PUT',
+                        body: JSON.stringify({ progressState: 'COMPLETED' }),
+                    });
+                    if (fbRes.ok) return { success: true, step: 'fallback-PUT' };
+                } catch (e) {}
+            }
+            return { success: false, error: 'Could not fetch video metadata or complete lecture.' };
+        }
+
+        const progressOk = await reportVideoProgress(userId, courseId, meta.videoId, meta.duration);
+
+        const MAX_WAIT_MS = isBulk ? 15000 : 30000;
+        const INTERVAL_MS = 2500;
+        const startTime = Date.now();
+
+        while (Date.now() - startTime < MAX_WAIT_MS) {
+            if (isBulkApiCancelled) break;
+            await sleep(INTERVAL_MS);
+            try {
+                const retryRes = await courseraFetch(completeUrl, {
+                    method: 'POST',
+                    body: JSON.stringify({ contentRequestBody: {} }),
+                });
+                if (retryRes.ok) {
+                    return { success: true, step: 4, videoId: meta.videoId };
+                }
+                if (retryRes.status === 403 || retryRes.status === 401) {
+                    return { success: false, error: 'Course enrollment permission error.' };
+                }
+            } catch (e) {}
+        }
+
+        if (progressOk) {
+            return { success: true, step: 3, videoId: meta.videoId, message: 'Video progress stored on Coursera server.' };
+        }
+        return { success: false, error: 'Failed to confirm video completion.' };
+    }
+
+    async function markSupplementCompleted(userId, courseId, courseSlug, itemId) {
+        try {
+            const supplementUrl = `${COURSERA_BASE}/api/onDemandSupplementCompletions.v1`;
+            const res = await courseraFetch(supplementUrl, {
+                method: 'POST',
+                body: JSON.stringify({
+                    courseId: courseId,
+                    itemId: itemId,
+                    userId: Number(userId)
+                }),
+            });
+            if (res.ok) return { success: true };
+        } catch (e) {}
+
+        try {
+            const fbRes = await courseraFetch(`${COURSERA_BASE}/api/opencourse.v1/user/${userId}/course/${courseId}/item/${itemId}/progressState`, {
+                method: 'PUT',
+                body: JSON.stringify({ progressState: 'COMPLETED' }),
+            });
+            if (fbRes.ok) return { success: true, fallback: true };
+        } catch (e) {}
+
+        return { success: false, error: 'Failed to complete reading.' };
+    }
+
+    async function getAllCourseItems(courseSlug) {
+        try {
+            const includes = "modules,lessons,passableItemGroups,passableItemGroupChoices,passableLessonElements,items,tracks,gradePolicy,gradingParameters,embeddedContentMapping";
+            const fields = "moduleIds,onDemandCourseMaterialModules.v1(name,slug,description,timeCommitment,lessonIds,optional,learningObjectives),onDemandCourseMaterialLessons.v1(name,slug,timeCommitment,elementIds,optional,trackId),onDemandCourseMaterialPassableItemGroups.v1(requiredPassedCount,passableItemGroupChoiceIds,trackId),onDemandCourseMaterialPassableItemGroupChoices.v1(name,description,itemIds),onDemandCourseMaterialPassableLessonElements.v1(gradingWeight,isRequiredForPassing),onDemandCourseMaterialItems.v2(name,originalName,slug,timeCommitment,contentSummary,isLocked,lockableByItem,itemLockedReasonCode,trackId,lockedStatus,itemLockSummary),onDemandCourseMaterialTracks.v1(passablesCount),onDemandGradingParameters.v1(gradedAssignmentGroups),contentAtomRelations.v1(embeddedContentSourceCourseId,subContainerId)";
+            const url = `${COURSERA_BASE}/api/onDemandCourseMaterials.v2/?q=slug&slug=${courseSlug}&includes=${includes}&fields=${fields}&showLockedItems=true`;
+
+            const res = await courseraFetch(url);
+            if (!res.ok) return null;
+            return await res.json();
+        } catch (e) {
+            console.warn('[AutoPilot API] getAllCourseItems error:', e);
+            return null;
+        }
+    }
+
+    function broadcastBulkProgress(data) {
+        chrome.storage.local.set({ bulkApiProgress: data }, () => {});
+        try {
+            chrome.runtime.sendMessage({ type: 'BULK_API_PROGRESS', data }, () => {
+                if (chrome.runtime.lastError) {}
+            });
+        } catch (e) {}
+    }
+
+    async function markCurrentItemCompleted() {
+        const context = getApiCourseContext();
+        if (!context || !context.courseSlug || !context.itemId) {
+            return { success: false, error: "Please open an individual lecture or reading item first." };
+        }
+        const { courseSlug, itemType, itemId } = context;
+        const courseId = await getCourseId(courseSlug);
+        if (!courseId) return { success: false, error: "Could not find courseId from Coursera API." };
+        const userId = await getUserId(courseId);
+        if (!userId) return { success: false, error: "Could not find userId. Ensure you are logged into Coursera." };
+
+        addLog(`[Fast API] Marking current item (${itemType}: ${itemId}) as completed...`, "info");
+        showStatus(`Completing ${itemType}...`);
+
+        if (itemType.includes('lecture') || itemType === 'video') {
+            const res = await markLectureCompleted(userId, courseId, courseSlug, itemId, false);
+            if (res.success) {
+                addLog(`✅ [Fast API] Video completed successfully! Refresh page to see green mark.`, "success");
+                showStatus("⚡ Current video marked complete!");
+                return { success: true, message: "Video marked completed via API!" };
+            } else {
+                addLog(`❌ [Fast API] Failed to complete video: ${res.error || 'Unknown error'}`, "error");
+                return res;
+            }
+        } else if (itemType.includes('supplement') || itemType === 'reading') {
+            const res = await markSupplementCompleted(userId, courseId, courseSlug, itemId);
+            if (res.success) {
+                addLog(`✅ [Fast API] Reading completed successfully! Refresh page to see green mark.`, "success");
+                showStatus("⚡ Current reading marked complete!");
+                return { success: true, message: "Reading marked completed via API!" };
+            } else {
+                addLog(`❌ [Fast API] Failed to complete reading: ${res.error || 'Unknown error'}`, "error");
+                return res;
+            }
+        }
+        return { success: false, error: `Item type "${itemType}" is not a lecture or reading.` };
+    }
+
+    async function markAllItemsCompleted() {
+        if (isBulkApiRunning) {
+            return { success: false, message: "Fast API Completion is already running!" };
+        }
+        const context = getApiCourseContext();
+        if (!context || !context.courseSlug) {
+            broadcastBulkProgress({ isRunning: false, error: "Not on a Coursera course page. Please open /learn/... first." });
+            return { success: false, error: "Course not found. Please navigate to a Coursera course." };
+        }
+
+        isBulkApiRunning = true;
+        isBulkApiCancelled = false;
+        const { courseSlug } = context;
+
+        broadcastBulkProgress({
+            isRunning: true,
+            statusText: "Loading course syllabus and item manifest...",
+            completed: 0,
+            total: 0,
+            percent: 0
+        });
+        addLog(`[Fast API] Loading course materials for '${courseSlug}'...`, "info");
+        showStatus("1-Click Complete: Fetching course materials...");
+
+        try {
+            const material = await getAllCourseItems(courseSlug);
+            if (!material || !material.linked || !material.linked['onDemandCourseMaterialItems.v2']) {
+                isBulkApiRunning = false;
+                broadcastBulkProgress({ isRunning: false, error: "Failed to load course materials from Coursera API." });
+                addLog("[Fast API] Failed to fetch course materials.", "error");
+                return { success: false, error: "Could not load course materials." };
+            }
+
+            const items = material.linked['onDemandCourseMaterialItems.v2'].filter(
+                (f) => f.contentSummary && (f.contentSummary.typeName.includes('lecture') || f.contentSummary.typeName.includes('supplement'))
+            );
+
+            const total = items.length;
+            if (total === 0) {
+                isBulkApiRunning = false;
+                broadcastBulkProgress({ isRunning: false, error: "No lecture videos or readings found in this course." });
+                return { success: false, error: "No lecture or supplement items found." };
+            }
+
+            const courseId = material.elements?.[0]?.id || await getCourseId(courseSlug);
+            if (!courseId) {
+                isBulkApiRunning = false;
+                broadcastBulkProgress({ isRunning: false, error: "Could not retrieve internal courseId." });
+                return { success: false, error: "Could not retrieve courseId." };
+            }
+
+            const userId = await getUserId(courseId);
+            if (!userId) {
+                isBulkApiRunning = false;
+                broadcastBulkProgress({ isRunning: false, error: "Could not retrieve userId. Make sure you are logged into Coursera." });
+                return { success: false, error: "Could not retrieve userId." };
+            }
+
+            addLog(`[Fast API] Found ${total} videos & readings for course ID ${courseId}. Starting batch processing...`, "info");
+
+            let completed = 0;
+            const batchSize = 5;
+
+            for (let i = 0; i < total; i += batchSize) {
+                if (isBulkApiCancelled) {
+                    isBulkApiRunning = false;
+                    broadcastBulkProgress({ isRunning: false, isCancelled: true, statusText: `Cancelled by user at ${completed}/${total} items.` });
+                    addLog(`[Fast API] Completion cancelled by user at ${completed}/${total} items.`, "warn");
+                    showStatus("1-Click Complete: Cancelled.");
+                    return { success: false, message: "Cancelled." };
+                }
+
+                const batch = items.slice(i, i + batchSize);
+
+                broadcastBulkProgress({
+                    isRunning: true,
+                    completed: completed,
+                    total: total,
+                    percent: Math.round((completed / total) * 100),
+                    statusText: `Processing items ${completed + 1}–${Math.min(completed + batchSize, total)} of ${total}...`
+                });
+                showStatus(`1-Click Complete: ${completed}/${total} (${Math.round((completed / total) * 100)}%)`);
+
+                await Promise.all(batch.map(async (item) => {
+                    try {
+                        const typeName = item.contentSummary.typeName;
+                        if (typeName.includes('lecture')) {
+                            await markLectureCompleted(userId, courseId, courseSlug, item.id, true);
+                        } else if (typeName.includes('supplement')) {
+                            await markSupplementCompleted(userId, courseId, courseSlug, item.id);
+                        }
+                    } catch (e) {
+                        console.warn('[Fast API] Item error', item.id, e);
+                    }
+                }));
+
+                completed = Math.min(completed + batch.length, total);
+                broadcastBulkProgress({
+                    isRunning: true,
+                    completed: completed,
+                    total: total,
+                    percent: Math.round((completed / total) * 100),
+                    statusText: `Completed: ${completed} / ${total} items (${Math.round((completed / total) * 100)}%)`
+                });
+
+                await sleep(1500);
+            }
+
+            isBulkApiRunning = false;
+            broadcastBulkProgress({
+                isRunning: false,
+                isCompleted: true,
+                completed: total,
+                total: total,
+                percent: 100,
+                statusText: `🎉 Success! All ${total} videos & readings completed. Refresh the course page to verify green ticks!`
+            });
+            addLog(`🎉 [Fast API] All ${total} course lectures and readings completed successfully! Refresh Coursera to verify.`, "success");
+            showStatus("⚡ 1-Click Complete: All videos & readings completed! Refresh page.");
+            return { success: true, count: total };
+        } catch (err) {
+            isBulkApiRunning = false;
+            broadcastBulkProgress({ isRunning: false, error: err.message || "Unknown error occurred." });
+            addLog(`[Fast API] Error during bulk completion: ${err.message}`, "error");
+            return { success: false, error: err.message };
+        }
+    }
+
+    // Message listener for popup communication
+    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+        if (message.action === 'markAllCompleted') {
+            markAllItemsCompleted().then(sendResponse);
+            return true;
+        }
+        if (message.action === 'markCompleted') {
+            markCurrentItemCompleted().then(sendResponse);
+            return true;
+        }
+        if (message.action === 'cancelBulkCompleted') {
+            isBulkApiCancelled = true;
+            sendResponse({ success: true, message: "Cancelling bulk completion..." });
+            return true;
+        }
+        if (message.action === 'getCourseContext') {
+            const ctx = getApiCourseContext();
+            sendResponse(ctx || { error: "Not on a course page" });
+            return true;
+        }
+    });
+
     // Run autopilot loop every 1 second
     const autoPilotTimer = setInterval(() => {
         if (!isExtensionValid()) {

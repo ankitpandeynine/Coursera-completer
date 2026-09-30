@@ -8,8 +8,8 @@
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      width: 375px;
-      padding: 14px;
+      width: 392px;
+      padding: 13px;
       background: #fbfbfd;
       color: #1a1a1a;
       overflow-x: hidden;
@@ -22,7 +22,7 @@
       justify-content: space-between;
       border-bottom: 2px solid #eef2f7;
       padding-bottom: 10px;
-      margin-bottom: 12px;
+      margin-bottom: 11px;
     }
     h3 {
       color: #0056D2;
@@ -41,38 +41,40 @@
       font-weight: 600;
     }
 
-    /* Tabs */
+    /* Navigation Tabs */
     .nav-tabs {
       display: flex;
       background: #eceff4;
       padding: 3px;
       border-radius: 8px;
-      gap: 3px;
+      gap: 2px;
       margin-bottom: 12px;
     }
     .tab-btn {
       flex: 1;
-      padding: 6px 4px;
+      padding: 6px 3px;
       border: none;
       background: transparent;
       border-radius: 6px;
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 600;
-      color: #6c757d;
+      color: #64748b;
       cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 5px;
+      gap: 3px;
+      white-space: nowrap;
       transition: all 0.18s ease;
     }
     .tab-btn:hover {
-      color: #111;
+      color: #0f172a;
     }
     .tab-btn.active {
       background: #ffffff;
       color: #0056D2;
       box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      font-weight: 700;
     }
     .dot-badge {
       width: 6px;
@@ -91,13 +93,18 @@
     }
     .tab-pane.active {
       display: block;
+      animation: fadeIn 0.15s ease-in-out;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(2px); }
+      to { opacity: 1; transform: translateY(0); }
     }
 
-    /* Controls Tab */
+    /* Generic Control Group Card */
     .control-group {
-      margin-bottom: 9px;
+      margin-bottom: 8px;
       background: #ffffff;
-      border: 1px solid #e5e8ec;
+      border: 1px solid #e2e8f0;
       border-radius: 8px;
       padding: 8px 12px;
       transition: border-color 0.2s ease, box-shadow 0.2s ease;
@@ -107,7 +114,7 @@
       box-shadow: 0 0 0 2px rgba(0, 86, 210, 0.1);
     }
     label {
-      font-size: 13px;
+      font-size: 12.5px;
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -136,341 +143,396 @@
       outline: none;
     }
     .provider-select {
-      width: 175px;
+      width: 185px;
       padding: 5px 6px;
       border: 1px solid #ced4da;
       border-radius: 6px;
       font-size: 11px;
       font-weight: 600;
-      color: #1a1a1a;
-      background: #fff;
+      color: #333;
+      background-color: #f8f9fa;
       outline: none;
       cursor: pointer;
     }
 
-    /* Provider Status & Cooldowns */
-    .provider-status-card {
+    /* Toggle switches & Checkboxes */
+    .checkbox-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      user-select: none;
+      font-size: 12px;
+    }
+    input[type="checkbox"] {
+      width: 15px;
+      height: 15px;
+      accent-color: #0056D2;
+      cursor: pointer;
+    }
+
+    /* TAB 1: 1-Click Fast API Styles */
+    .course-status-card {
       background: #ffffff;
-      border: 1px solid #e5e8ec;
+      border: 1px solid #e2e8f0;
       border-radius: 8px;
-      padding: 8px 10px;
-      margin-bottom: 9px;
+      padding: 9px 12px;
+      margin-bottom: 10px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .big-oneclick-btn {
+      width: 100%;
+      background: linear-gradient(135deg, #0056D2 0%, #0080ff 55%, #00E676 100%);
+      color: #ffffff;
+      border: none;
+      border-radius: 10px;
+      padding: 13px 15px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      cursor: pointer;
+      box-shadow: 0 4px 15px rgba(0, 86, 210, 0.35);
+      transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
+      margin-bottom: 8px;
+    }
+    .big-oneclick-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px rgba(0, 86, 210, 0.45);
+      filter: brightness(1.03);
+    }
+    .big-oneclick-btn:active {
+      transform: translateY(1px);
+    }
+    .big-btn-icon-pulse {
+      width: 36px;
+      height: 36px;
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 19px;
+      box-shadow: 0 0 12px rgba(255, 255, 255, 0.4);
+      flex-shrink: 0;
+    }
+    .secondary-oneclick-btn {
+      width: 100%;
+      background: #ffffff;
+      color: #0056D2;
+      border: 1px solid #cce0ff;
+      border-radius: 8px;
+      padding: 9px 12px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: all 0.15s ease;
+      margin-bottom: 11px;
+    }
+    .secondary-oneclick-btn:hover {
+      background: #f0f7ff;
+      border-color: #0056D2;
+    }
+    .bulk-progress-card {
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      border-radius: 9px;
+      padding: 11px 12px;
+      margin-bottom: 11px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+    }
+    .progress-bar-track {
+      width: 100%;
+      height: 8px;
+      background: #e2e8f0;
+      border-radius: 6px;
+      overflow: hidden;
+      margin: 6px 0;
+    }
+    .progress-bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #0056D2, #00E676);
+      border-radius: 6px;
+      transition: width 0.3s ease;
+    }
+    .spinner-dot {
+      display: inline-block;
+      width: 7px;
+      height: 7px;
+      background: #00E676;
+      border-radius: 50%;
+      animation: pulseDot 1s infinite alternate;
+    }
+    @keyframes pulseDot {
+      from { transform: scale(0.8); opacity: 0.5; }
+      to { transform: scale(1.3); opacity: 1; }
+    }
+    .cancel-pill-btn {
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      color: #ef4444;
+      font-size: 10.5px;
+      font-weight: 700;
+      padding: 3px 9px;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .cancel-pill-btn:hover {
+      background: #ef4444;
+      color: #fff;
+    }
+
+    /* MCQ / Practice Questions Redirect Card */
+    .quiz-redirect-card {
+      background: linear-gradient(135deg, rgba(0, 86, 210, 0.04) 0%, rgba(138, 43, 226, 0.05) 100%);
+      border: 1px solid rgba(0, 86, 210, 0.22);
+      border-radius: 9px;
+      padding: 10px 12px;
+      transition: all 0.18s ease;
+      cursor: pointer;
+    }
+    .quiz-redirect-card:hover {
+      background: linear-gradient(135deg, rgba(0, 86, 210, 0.08) 0%, rgba(138, 43, 226, 0.09) 100%);
+      border-color: #0056D2;
+      transform: translateY(-1px);
+    }
+    .setup-pill-btn {
+      background: #0056D2;
+      color: #ffffff;
+      border: none;
+      border-radius: 6px;
+      padding: 6px 11px;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      box-shadow: 0 2px 6px rgba(0, 86, 210, 0.3);
+    }
+    .setup-pill-btn:hover {
+      background: #0041a8;
+    }
+
+    /* Provider Status / Cooldown Monitoring Card */
+    .provider-status-card {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 9px 12px;
+      margin-bottom: 8px;
     }
     .status-card-header {
       display: flex;
-      align-items: center;
       justify-content: space-between;
+      align-items: center;
       margin-bottom: 6px;
     }
     .status-card-title {
       font-size: 11px;
       font-weight: 700;
-      color: #4a5568;
+      color: #475569;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
     }
     .cooldown-reset-btn {
-      background: #f1f5f9;
-      border: 1px solid #cbd5e1;
-      color: #475569;
-      font-size: 9.5px;
-      font-weight: 600;
-      padding: 2px 7px;
-      border-radius: 4px;
+      font-size: 10px;
+      color: #0056D2;
+      background: none;
+      border: none;
       cursor: pointer;
-      transition: all 0.15s ease;
-    }
-    .cooldown-reset-btn:hover {
-      background: #e2e8f0;
-      color: #0f172a;
+      text-decoration: underline;
+      padding: 0;
     }
     .status-chips-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 5px;
+      gap: 6px;
     }
     .status-chip {
-      font-size: 10px;
-      padding: 3px 6px;
-      border-radius: 4px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      font-weight: 600;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    .status-chip.ready {
-      background: #e8f5e9;
-      color: #1b5e20;
-      border: 1px solid #c8e6c9;
-    }
-    .status-chip.cooldown {
-      background: #fff8e1;
-      color: #b78103;
-      border: 1px solid #ffe082;
-      animation: pulse-warn 1.5s infinite alternate;
-    }
-    .status-chip.unset {
-      background: #f1f5f9;
-      color: #94a3b8;
-      border: 1px solid #e2e8f0;
-    }
-    @keyframes pulse-warn {
-      0% { opacity: 0.85; }
-      100% { opacity: 1; }
-    }
-
-    .course-assignment-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      background: #f8fafc;
+      background: #ffffff;
       border: 1px solid #e2e8f0;
       border-radius: 6px;
-      padding: 5px 8px;
+      padding: 4px 7px;
       font-size: 10.5px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
     }
-    .course-slug-label {
-      font-weight: 600;
-      color: #334155;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      max-width: 200px;
-    }
-    .course-ai-badge {
-      font-weight: 700;
-      font-size: 10px;
-      padding: 2px 6px;
-      border-radius: 4px;
-      background: #eff6ff;
-      color: #1d4ed8;
-      border: 1px solid #bfdbfe;
-    }
+    .status-chip.ready { border-color: #00E676; background: rgba(0, 230, 118, 0.05); }
+    .status-chip.active { border-color: #0056D2; background: rgba(0, 86, 210, 0.08); font-weight: 700; }
+    .status-chip.cooldown { border-color: #ffd740; background: rgba(255, 215, 64, 0.08); }
+    .status-chip.unset { border-color: #cbd5e1; opacity: 0.6; }
+    .chip-state { font-size: 9.5px; font-weight: 700; }
 
-    /* Collapsible API Keys Section */
+    /* Collapsible API Keys Drawer */
     .keys-card {
       background: #ffffff;
-      border: 1px solid #e5e8ec;
+      border: 1px solid #e2e8f0;
       border-radius: 8px;
-      margin-bottom: 9px;
+      margin-bottom: 8px;
       overflow: hidden;
     }
     .keys-card-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
       padding: 8px 12px;
-      background: #f8fafc;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
       cursor: pointer;
-      font-size: 11.5px;
-      font-weight: 700;
-      color: #1e293b;
+      background: #f8fafc;
       user-select: none;
     }
-    .keys-card-header:hover {
-      background: #f1f5f9;
+    .keys-card-header:hover { background: #f1f5f9; }
+    .keys-card-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: #334155;
+      display: flex;
+      align-items: center;
+      gap: 5px;
     }
     .keys-drawer {
-      padding: 8px 12px 10px 12px;
-      display: flex;
+      padding: 10px 12px;
+      display: none;
       flex-direction: column;
       gap: 8px;
-      border-top: 1px solid #eef2f6;
+      border-top: 1px solid #e2e8f0;
+      background: #ffffff;
     }
-    .key-field {
+    .key-row {
       display: flex;
       flex-direction: column;
       gap: 3px;
     }
     .key-label-row {
       display: flex;
-      align-items: center;
       justify-content: space-between;
-      font-size: 11px;
-      font-weight: 600;
-      color: #334155;
+      align-items: center;
+      font-size: 10.5px;
     }
-    .free-pill {
-      font-size: 9px;
-      font-weight: 700;
-      background: #e6fcf5;
-      color: #0ca678;
-      padding: 1px 5px;
-      border-radius: 4px;
-      margin-left: 3px;
-    }
+    .key-name { font-weight: 600; color: #1e293b; }
     .get-key-link {
-      font-size: 10px;
       color: #0056D2;
       text-decoration: none;
-      font-weight: 600;
+      font-size: 10px;
     }
-    .get-key-link:hover {
-      text-decoration: underline;
-    }
+    .get-key-link:hover { text-decoration: underline; }
     .key-input {
       width: 100%;
       padding: 5px 8px;
+      font-size: 11px;
       border: 1px solid #cbd5e1;
       border-radius: 5px;
-      font-size: 11.5px;
       font-family: ui-monospace, Menlo, Monaco, Consolas, monospace;
       outline: none;
     }
-    .key-input:focus {
-      border-color: #0056D2;
-    }
-    .provider-badge-tag {
-      font-size: 9.5px;
-      padding: 2px 6px;
-      border-radius: 4px;
-      background: #e0f2fe;
-      color: #0369a1;
+    .free-pill {
+      background: #e6f9f0;
+      color: #00a854;
+      font-size: 9px;
       font-weight: 700;
-      display: inline-block;
-      margin-left: 6px;
+      padding: 1px 4px;
+      border-radius: 3px;
+      margin-left: 3px;
     }
 
-    .checkbox-label {
-      justify-content: flex-start;
-      gap: 10px;
-      user-select: none;
-    }
-    .checkbox-label input[type="checkbox"] {
-      accent-color: #0056D2;
-      width: 16px;
-      height: 16px;
-      cursor: pointer;
-      margin: 0;
-    }
-
-    /* AI Quiz Solution Viewer */
-    .quiz-meta {
-      background: #f0f4f9;
-      border-radius: 8px;
-      padding: 8px 12px;
-      margin-bottom: 10px;
+    /* AI Solution Viewer */
+    #quizSolutionContainer {
       display: flex;
-      align-items: center;
+      flex-direction: column;
+      gap: 9px;
+    }
+    .quiz-meta {
+      background: #0f172a;
+      color: #f8fafc;
+      padding: 9px 12px;
+      border-radius: 8px;
+      font-size: 11.5px;
+      display: flex;
       justify-content: space-between;
-      border: 1px solid #e1e7ee;
+      align-items: center;
     }
     .quiz-title {
-      font-size: 12px;
       font-weight: 700;
-      color: #0056D2;
+      max-width: 210px;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-      max-width: 230px;
     }
-    .quiz-time {
-      font-size: 10px;
-      color: #666;
-      font-weight: 500;
+    .quiz-provider-tag {
+      background: #0056D2;
+      color: white;
+      font-size: 9.5px;
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-weight: 700;
+      margin-left: 5px;
     }
-
+    .quiz-grade-tag {
+      background: #00E676;
+      color: black;
+      font-size: 9.5px;
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-weight: 800;
+      margin-left: 4px;
+    }
     .question-card {
       background: #ffffff;
       border: 1px solid #e2e8f0;
       border-radius: 8px;
-      padding: 10px 12px;
-      margin-bottom: 10px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+      padding: 9px 12px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
     }
     .q-prompt-title {
-      font-size: 12px;
+      font-size: 11.5px;
       font-weight: 700;
-      color: #1a1a1a;
-      margin-bottom: 7px;
+      color: #0f172a;
+      margin-bottom: 6px;
       line-height: 1.4;
     }
     .options-list {
       display: flex;
       flex-direction: column;
-      gap: 5px;
-      margin-bottom: 8px;
+      gap: 4px;
     }
     .option-row {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 5px 9px;
-      border-radius: 6px;
-      font-size: 11.5px;
-      background: #f8fafc;
-      border: 1px solid #eef2f6;
-      color: #444;
+      padding: 5px 8px;
+      font-size: 11px;
+      border-radius: 5px;
+      border: 1px solid transparent;
+      color: #475569;
     }
     .option-row.selected {
-      background: #e8f5e9;
-      border-color: #00E676;
-      color: #1b5e20;
-      font-weight: 700;
-      box-shadow: 0 1px 4px rgba(0, 230, 118, 0.15);
+      background: rgba(0, 86, 210, 0.08);
+      border-color: rgba(0, 86, 210, 0.35);
+      color: #0056D2;
+      font-weight: 600;
     }
     .selected-tag {
       font-size: 9.5px;
-      color: #00796b;
-      background: #c8e6c9;
-      padding: 1px 6px;
-      border-radius: 4px;
       font-weight: 700;
-      display: flex;
-      align-items: center;
-      gap: 3px;
+      background: #0056D2;
+      color: #fff;
+      padding: 1px 5px;
+      border-radius: 3px;
     }
     .rationale-box {
-      background: #1e1e24;
-      color: #e2e8f0;
-      border-radius: 6px;
-      padding: 7px 9px;
-      font-size: 11px;
-      line-height: 1.4;
       margin-top: 6px;
+      padding: 6px 8px;
+      background: #f8fafc;
       border-left: 3px solid #00E676;
-    }
-    .rationale-title {
-      color: #00E676;
-      font-weight: 700;
+      border-radius: 0 4px 4px 0;
       font-size: 10px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      margin-bottom: 3px;
+      color: #334155;
+      line-height: 1.4;
     }
-
-    .raw-drawer {
-      margin-top: 10px;
-      border-top: 1px dashed #d0d7de;
-      padding-top: 8px;
-    }
-    .raw-toggle-btn {
-      width: 100%;
-      background: #edf2f7;
-      border: none;
-      padding: 5px;
-      border-radius: 5px;
-      font-size: 11px;
-      font-weight: 600;
-      color: #4a5568;
-      cursor: pointer;
-    }
-    .raw-content {
-      display: none;
-      margin-top: 6px;
-      background: #0f172a;
-      color: #a5f3fc;
-      padding: 8px;
-      border-radius: 6px;
-      font-size: 9.5px;
-      max-height: 140px;
-      overflow-y: auto;
-      font-family: ui-monospace, Menlo, Monaco, Consolas, monospace;
-      white-space: pre-wrap;
-      word-break: break-all;
-    }
-
     .quiz-empty {
       text-align: center;
       padding: 24px 10px;
@@ -481,14 +543,10 @@
       border-radius: 8px;
       line-height: 1.5;
     }
-    .quiz-empty-icon {
-      font-size: 26px;
-      margin-bottom: 6px;
-    }
 
-    /* Activity Log Section */
+    /* Logs & AI Logs Sections */
     .log-section {
-      background: #1e1e24;
+      background: #18181f;
       border-radius: 8px;
       padding: 10px 12px;
       color: #e0e0e0;
@@ -508,6 +566,28 @@
       font-weight: 700;
       color: #00E676;
     }
+    .filter-pills-bar {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 8px;
+      overflow-x: auto;
+    }
+    .filter-pill {
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.15);
+      color: #94a3b8;
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 7px;
+      border-radius: 4px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .filter-pill.active {
+      background: #0056D2;
+      border-color: #0056D2;
+      color: #fff;
+    }
     .log-clear-btn {
       background: rgba(255,255,255,0.1);
       border: none;
@@ -518,15 +598,12 @@
       border-radius: 4px;
       cursor: pointer;
     }
-    .log-clear-btn:hover {
-      background: rgba(255,255,255,0.2);
-      color: #fff;
-    }
+    .log-clear-btn:hover { background: rgba(255,255,255,0.2); color: #fff; }
     .log-list {
-      max-height: 220px;
+      max-height: 230px;
       overflow-y: auto;
       font-family: ui-monospace, Menlo, Monaco, Consolas, monospace;
-      font-size: 11px;
+      font-size: 10.5px;
       line-height: 1.45;
       display: flex;
       flex-direction: column;
@@ -540,7 +617,7 @@
     }
     .log-time {
       color: #888;
-      font-size: 9.5px;
+      font-size: 9px;
       flex-shrink: 0;
       padding-top: 1px;
     }
@@ -552,11 +629,11 @@
 
     /* Footer */
     .footer {
-      margin-top: 12px;
+      margin-top: 11px;
       text-align: center;
-      font-size: 11.5px;
+      font-size: 11px;
       border-top: 1px solid #eef2f7;
-      padding-top: 9px;
+      padding-top: 8px;
     }
     .footer a {
       color: #64748b;
@@ -567,9 +644,7 @@
       gap: 5px;
       font-weight: 600;
     }
-    .footer a:hover {
-      color: #0056D2;
-    }
+    .footer a:hover { color: #0056D2; }
   </style>
 </head>
 <body>
@@ -601,57 +676,88 @@
     </div>
   </div>
 
-  <!-- Navigation Tabs -->
+  <!-- Navigation Tabs (5 Tabs) -->
   <div class="nav-tabs">
-    <button class="tab-btn active" data-tab="settings">⚡ Controls</button>
-    <button class="tab-btn" data-tab="quiz">🧠 AI Solution <span id="quizBadge" class="dot-badge"></span></button>
-    <button class="tab-btn" data-tab="logs">📋 Logs</button>
+    <button class="tab-btn active" data-tab="oneclick" title="1-Click Complete entire course via direct API">⚡ 1-Click</button>
+    <button class="tab-btn" data-tab="quiz" title="Practice Questions, MCQs & AI Solver Configuration">🧠 Quizzes <span id="quizBadge" class="dot-badge"></span></button>
+    <button class="tab-btn" data-tab="video" title="Video speed controls, bypass & player options">🎬 Video</button>
+    <button class="tab-btn" data-tab="ailogs" title="Live AI model calls, tokens & reasoning stream">📡 AI Logs</button>
+    <button class="tab-btn" data-tab="logs" title="Full extension activity & navigation logs">📋 Logs</button>
   </div>
 
-  <!-- TAB 1: Controls -->
-  <div id="pane-settings" class="tab-pane active">
-    <!-- Video Speed Injection & Playback Speed -->
-    <div class="control-group">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-        <label class="checkbox-label" style="margin: 0; cursor: pointer;" title="Toggle video speed injection on or off. When disabled, videos play at Coursera's normal native speed.">
-          <input type="checkbox" id="speedInjectionCB" checked>
-          <span style="font-weight: 700; color: #fff;">⚡ Video Speed Injection</span>
-        </label>
-        <span id="speedToggleStatus" style="font-size: 11px; font-weight: 700; color: #00E676; background: rgba(0,230,118,0.15); border: 1px solid rgba(0,230,118,0.3); border-radius: 4px; padding: 2px 7px;">ENABLED</span>
-      </div>
-      <label id="speedInputWrapper" style="transition: opacity 0.2s ease;">
-        <div class="label-title">
-          <span>Target Playback Speed</span>
-          <span class="label-hint">Range: 0.25x - 16x</span>
+  <!-- ========================================== -->
+  <!-- TAB 1: 1-Click Complete (Fast API Engine)   -->
+  <!-- ========================================== -->
+  <div id="pane-oneclick" class="tab-pane active">
+    <!-- Active Course Status Card -->
+    <div class="course-status-card" id="courseStatusCard">
+      <div style="display: flex; align-items: center; justify-content: space-between;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 18px;">📚</span>
+          <div>
+            <div id="courseNameText" style="font-size: 12px; font-weight: 700; color: #0f172a; max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Detecting Coursera Course...</div>
+            <div id="courseSlugText" style="font-size: 10px; color: #64748b;">Open a course in Coursera to activate</div>
+          </div>
         </div>
-        <input type="number" id="speedInput" step="0.25" min="0.25" max="16" value="2.0">
-      </label>
-
-      <!-- Quick Speed Preset Buttons -->
-      <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px;">
-        <button type="button" class="speed-preset-btn" data-speed="1.0" style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.2); color: #ddd; border-radius: 6px; padding: 4px 8px; font-size: 11px; font-weight: 600; cursor: pointer;">1.0x</button>
-        <button type="button" class="speed-preset-btn" data-speed="1.5" style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.2); color: #ddd; border-radius: 6px; padding: 4px 8px; font-size: 11px; font-weight: 600; cursor: pointer;">1.5x</button>
-        <button type="button" class="speed-preset-btn" data-speed="2.0" style="background: rgba(0, 86, 210, 0.35); border: 1px solid #0056D2; color: #80d8ff; border-radius: 6px; padding: 4px 10px; font-size: 11px; font-weight: 700; cursor: pointer;" title="Coursera 100% Native Safe Speed - Zero Errors">⚡ 2.0x (Native Safe)</button>
-        <button type="button" class="speed-preset-btn" data-speed="3.0" style="background: rgba(0, 230, 118, 0.2); border: 1px solid #00E676; color: #00E676; border-radius: 6px; padding: 4px 10px; font-size: 11px; font-weight: 700; cursor: pointer;" title="Turbo 3.0x Speed with Anti-Crash Shield">🚀 3.0x (Turbo)</button>
-        <button type="button" class="speed-preset-btn" data-speed="4.0" style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.2); color: #ddd; border-radius: 6px; padding: 4px 8px; font-size: 11px; font-weight: 600; cursor: pointer;">4.0x</button>
-        <button type="button" class="speed-preset-btn" data-speed="8.0" style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.2); color: #ddd; border-radius: 6px; padding: 4px 8px; font-size: 11px; font-weight: 600; cursor: pointer;">8.0x</button>
-        <button type="button" class="speed-preset-btn" data-speed="16.0" style="background: rgba(255, 68, 68, 0.2); border: 1px solid #ff4444; color: #ff8888; border-radius: 6px; padding: 4px 8px; font-size: 11px; font-weight: 700; cursor: pointer;" title="Maximum hardware playback speed">16x (Max)</button>
-        <button type="button" id="superBypassVideoBtn" style="background: rgba(255, 152, 0, 0.12); border: 1px solid rgba(255, 152, 0, 0.4); color: #ffa726; border-radius: 6px; padding: 4px 10px; font-size: 11px; font-weight: 700; cursor: pointer; transition: all 0.2s; white-space: nowrap;" title="Super Bypass Video Mode: Automatically clicks the End button after 1s of playback">⚡ Super Bypass: OFF</button>
+        <span id="courseStatusBadge" style="background: rgba(0, 86, 210, 0.1); color: #0056D2; padding: 2px 7px; border-radius: 4px; font-size: 10px; font-weight: 700;">CHECKING</span>
       </div>
     </div>
 
-    <!-- Speed Force Method -->
-    <div class="control-group" id="forceMethodWrapper" style="transition: opacity 0.2s ease;">
-      <label>
-        <div class="label-title">
-          <span>Speed Mode</span>
-          <span class="label-hint">Engine selection</span>
+    <!-- Big Action Button: 1-Click Complete Entire Course -->
+    <button type="button" id="startBulkCompleteBtn" class="big-oneclick-btn" title="Directly marks all videos & readings across the entire course completed via Coursera API">
+      <div class="big-btn-icon-pulse">⚡</div>
+      <div style="display: flex; flex-direction: column; align-items: flex-start; text-align: left; flex: 1;">
+        <span style="font-weight: 800; font-size: 13.5px; letter-spacing: 0.2px;">1-Click Complete Course</span>
+        <span style="font-size: 10px; opacity: 0.92; font-weight: 500;">Directly finishes all videos &amp; readings in seconds via API</span>
+      </div>
+    </button>
+
+    <!-- Secondary Action: Complete Current Item Only -->
+    <button type="button" id="startSingleCompleteBtn" class="secondary-oneclick-btn" title="Instantly completes the currently viewed lecture or reading">
+      <span>⏩ Mark Current Item Complete</span>
+    </button>
+
+    <!-- Real-time Progress Display Card (shows automatically or when running) -->
+    <div class="bulk-progress-card" id="bulkProgressCard" style="display: none;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+        <span style="font-weight: 700; font-size: 11.5px; color: #0f172a; display: flex; align-items: center; gap: 5px;">
+          <span class="spinner-dot"></span> Fast API Progress
+        </span>
+        <span id="bulkProgressStats" style="font-family: ui-monospace, Menlo, monospace; font-weight: 700; font-size: 11px; color: #0056D2;">0 / 0 (0%)</span>
+      </div>
+      <div class="progress-bar-track">
+        <div id="bulkProgressBar" class="progress-bar-fill" style="width: 0%;"></div>
+      </div>
+      <div id="bulkStatusText" style="font-size: 11px; color: #475569; margin-top: 6px; line-height: 1.4; word-break: break-word;">Ready to start. Click the button above to begin.</div>
+      <div style="display: flex; justify-content: flex-end; margin-top: 8px;">
+        <button id="cancelBulkBtn" type="button" class="cancel-pill-btn" style="display: none;">Cancel</button>
+      </div>
+    </div>
+
+    <!-- Redirect Card to MCQ / Practice Question Setup -->
+    <div class="quiz-redirect-card" id="gotoQuizTabCard" title="Click to open Practice Questions & AI configuration">
+      <div style="display: flex; align-items: center; justify-content: space-between;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div style="width: 34px; height: 34px; background: rgba(0, 86, 210, 0.1); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 19px; flex-shrink: 0;">🧠</div>
+          <div>
+            <div style="font-size: 12px; font-weight: 700; color: #0f172a;">Practice &amp; Quiz Auto-Solver</div>
+            <div style="font-size: 10px; color: #64748b; line-height: 1.3;">Solve MCQs, quizzes &amp; AI dialogue coach with free AI</div>
+          </div>
         </div>
-        <select id="forceMethodSelect" class="provider-select">
-          <option value="hybrid">🚀 Auto-Shield (Coursera Native 2x + Turbo Spoof up to 16x - Recommended)</option>
-          <option value="native_2x">⚡ Coursera Native 2.0x Only (100% Safe, Zero Errors, Native Buffer)</option>
-          <option value="turbo">🔥 Force Turbo (Direct Hardware Rate Override 3x-16x)</option>
-        </select>
+        <button type="button" class="setup-pill-btn" id="gotoQuizTabBtn">Setup ➔</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================== -->
+  <!-- TAB 2: Practice Questions & AI Auto-Solver -->
+  <!-- ========================================== -->
+  <div id="pane-quiz" class="tab-pane">
+    <!-- Auto-Solve Practice & Quizzes Toggle -->
+    <div class="control-group">
+      <label class="checkbox-label" title="Automatically reads quiz questions and answers them via AI">
+        <input type="checkbox" id="autoSolveCB" checked> 
+        <span style="font-weight: 700; color: #0f172a;">🧠 Auto-Solve Practice &amp; Quizzes</span>
       </label>
     </div>
 
@@ -739,35 +845,39 @@
     <!-- Collapsible API Keys Section -->
     <div class="keys-card">
       <div class="keys-card-header" id="toggleKeysBtn">
-        <span>🔑 Configure Free AI API Keys</span>
-        <span id="keysArrow">▼</span>
+        <span class="keys-card-title">🔑 Configure Free AI API Keys</span>
+        <span id="keysArrow" style="font-size: 11px; color: #64748b;">▼</span>
       </div>
-      <div id="keysDrawer" class="keys-drawer">
-        <div class="key-field">
+      <div class="keys-drawer" id="keysDrawer">
+        <!-- Google Gemini -->
+        <div class="key-row">
           <div class="key-label-row">
-            <span class="key-name">⚡ Groq Cloud <span class="free-pill">100% Free &amp; Fast</span></span>
+            <span class="key-name">🌟 Google Gemini <span class="free-pill">100% Free</span></span>
+            <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" class="get-key-link">Get Free Key ↗</a>
+          </div>
+          <input type="password" id="geminiApiKeyInput" placeholder="AIzaSy..." class="key-input">
+        </div>
+
+        <!-- Groq Cloud -->
+        <div class="key-row">
+          <div class="key-label-row">
+            <span class="key-name">⚡ Groq Cloud <span class="free-pill">Ultra Fast</span></span>
             <a href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer" class="get-key-link">Get Free Key ↗</a>
           </div>
           <input type="password" id="groqApiKeyInput" placeholder="gsk_..." class="key-input">
         </div>
 
-        <div class="key-field">
-          <div class="key-label-row">
-            <span class="key-name">🌟 Google Gemini <span class="free-pill">AI Studio Free</span></span>
-            <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" class="get-key-link">Get Free Key ↗</a>
-          </div>
-          <input type="password" id="geminiApiKeyInput" placeholder="AI Studio Key" class="key-input">
-        </div>
-
-        <div class="key-field">
+        <!-- OpenRouter -->
+        <div class="key-row">
           <div class="key-label-row">
             <span class="key-name">🌐 OpenRouter <span class="free-pill">Free Tier</span></span>
             <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer" class="get-key-link">Get Free Key ↗</a>
           </div>
-          <input type="password" id="openRouterApiKeyInput" placeholder="sk-or-..." class="key-input">
+          <input type="password" id="openRouterApiKeyInput" placeholder="sk-or-v1-..." class="key-input">
         </div>
 
-        <div class="key-field">
+        <!-- NVIDIA NIM -->
+        <div class="key-row">
           <div class="key-label-row">
             <span class="key-name">🟢 NVIDIA NIM <span class="free-pill">Developer Trial</span></span>
             <a href="https://build.nvidia.com" target="_blank" rel="noopener noreferrer" class="get-key-link">Get Free Key ↗</a>
@@ -777,7 +887,69 @@
       </div>
     </div>
 
-    <!-- Automation Focus Mode -->
+    <!-- Solved Quiz & MCQ Solution Viewer -->
+    <div style="margin-top: 10px;">
+      <div style="font-size: 11px; font-weight: 700; color: #475569; text-transform: uppercase; margin-bottom: 6px; letter-spacing: 0.5px;">Last Solved Quiz Solution</div>
+      <div id="quizSolutionContainer">
+        <div class="quiz-empty">
+          <div style="font-size: 24px; margin-bottom: 5px;">🧠</div>
+          No quiz solved yet.<br>
+          Open a practice quiz or assignment on Coursera to view live AI answers, step-by-step reasoning, and marked choices right here!
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================== -->
+  <!-- TAB 3: Video Controls & Player Settings    -->
+  <!-- ========================================== -->
+  <div id="pane-video" class="tab-pane">
+    <!-- Video Speed Injection & Playback Speed -->
+    <div class="control-group">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+        <label class="checkbox-label" style="margin: 0; cursor: pointer;" title="Toggle video speed injection on or off. When disabled, videos play at Coursera's normal native speed.">
+          <input type="checkbox" id="speedInjectionCB" checked>
+          <span style="font-weight: 700; color: #0f172a;">⚡ Video Speed Injection</span>
+        </label>
+        <span id="speedToggleStatus" style="font-size: 11px; font-weight: 700; color: #00E676; background: rgba(0,230,118,0.15); border: 1px solid rgba(0,230,118,0.3); border-radius: 4px; padding: 2px 7px;">ENABLED</span>
+      </div>
+      <label id="speedInputWrapper" style="transition: opacity 0.2s ease;">
+        <div class="label-title">
+          <span>Target Playback Speed</span>
+          <span class="label-hint">Range: 0.25x - 16x</span>
+        </div>
+        <input type="number" id="speedInput" step="0.25" min="0.25" max="16" value="2.0">
+      </label>
+
+      <!-- Quick Speed Preset Buttons -->
+      <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px;">
+        <button type="button" class="speed-preset-btn" data-speed="1.0" style="background: rgba(0,0,0,0.04); border: 1px solid rgba(0,0,0,0.12); color: #334155; border-radius: 6px; padding: 4px 8px; font-size: 11px; font-weight: 600; cursor: pointer;">1.0x</button>
+        <button type="button" class="speed-preset-btn" data-speed="1.5" style="background: rgba(0,0,0,0.04); border: 1px solid rgba(0,0,0,0.12); color: #334155; border-radius: 6px; padding: 4px 8px; font-size: 11px; font-weight: 600; cursor: pointer;">1.5x</button>
+        <button type="button" class="speed-preset-btn" data-speed="2.0" style="background: rgba(0, 86, 210, 0.1); border: 1px solid #0056D2; color: #0056D2; border-radius: 6px; padding: 4px 10px; font-size: 11px; font-weight: 700; cursor: pointer;" title="Coursera 100% Native Safe Speed - Zero Errors">⚡ 2.0x (Native Safe)</button>
+        <button type="button" class="speed-preset-btn" data-speed="3.0" style="background: rgba(0, 230, 118, 0.15); border: 1px solid #00E676; color: #008744; border-radius: 6px; padding: 4px 10px; font-size: 11px; font-weight: 700; cursor: pointer;" title="Turbo 3.0x Speed with Anti-Crash Shield">🚀 3.0x (Turbo)</button>
+        <button type="button" class="speed-preset-btn" data-speed="4.0" style="background: rgba(0,0,0,0.04); border: 1px solid rgba(0,0,0,0.12); color: #334155; border-radius: 6px; padding: 4px 8px; font-size: 11px; font-weight: 600; cursor: pointer;">4.0x</button>
+        <button type="button" class="speed-preset-btn" data-speed="8.0" style="background: rgba(0,0,0,0.04); border: 1px solid rgba(0,0,0,0.12); color: #334155; border-radius: 6px; padding: 4px 8px; font-size: 11px; font-weight: 600; cursor: pointer;">8.0x</button>
+        <button type="button" class="speed-preset-btn" data-speed="16.0" style="background: rgba(239, 68, 68, 0.1); border: 1px solid #ef4444; color: #dc2626; border-radius: 6px; padding: 4px 8px; font-size: 11px; font-weight: 700; cursor: pointer;" title="Maximum hardware playback speed">16x (Max)</button>
+        <button type="button" id="superBypassVideoBtn" style="background: rgba(255, 152, 0, 0.12); border: 1px solid rgba(255, 152, 0, 0.4); color: #ea580c; border-radius: 6px; padding: 4px 10px; font-size: 11px; font-weight: 700; cursor: pointer; transition: all 0.2s; white-space: nowrap;" title="Super Bypass Video Mode: Automatically clicks the End button after 1s of playback">⚡ Super Bypass: OFF</button>
+      </div>
+    </div>
+
+    <!-- Speed Force Method -->
+    <div class="control-group" id="forceMethodWrapper" style="transition: opacity 0.2s ease;">
+      <label>
+        <div class="label-title">
+          <span>Speed Mode</span>
+          <span class="label-hint">Engine selection</span>
+        </div>
+        <select id="forceMethodSelect" class="provider-select">
+          <option value="hybrid">🚀 Auto-Shield (Coursera Native 2x + Turbo Spoof up to 16x - Recommended)</option>
+          <option value="native_2x">⚡ Coursera Native 2.0x Only (100% Safe, Zero Errors, Native Buffer)</option>
+          <option value="turbo">🔥 Force Turbo (Direct Hardware Rate Override 3x-16x)</option>
+        </select>
+      </label>
+    </div>
+
+    <!-- Course Focus Mode -->
     <div class="control-group">
       <label>
         <div class="label-title">
@@ -785,26 +957,26 @@
           <span class="label-hint">Item filtering</span>
         </div>
         <select id="focusModeSelect" class="provider-select">
-          <option value="all">🎯 Complete All Items (Videos, Readings & Quizzes)</option>
-          <option value="quizzes_only">🧠 Only Practice & Quizzes (Skip Videos/Readings)</option>
-          <option value="videos_only">🎬 Only Videos & Readings (Skip Quizzes/Assignments)</option>
+          <option value="all">🎯 Complete All Items (Videos, Readings &amp; Quizzes)</option>
+          <option value="quizzes_only">🧠 Only Practice &amp; Quizzes (Skip Videos/Readings)</option>
+          <option value="videos_only">🎬 Only Videos &amp; Readings (Skip Quizzes/Assignments)</option>
           <option value="pending_only">⚡ Only Incomplete Items (Skip Already Green Marked)</option>
         </select>
       </label>
     </div>
 
-    <!-- Automation Checkboxes -->
+    <!-- Video Automation Checkboxes -->
     <div class="control-group">
       <label class="checkbox-label" title="Verifies green checkmark in sidebar before advancing. Replays video once if completion was not recorded by Coursera.">
         <input type="checkbox" id="strictCompletionCB" checked> 
-        <span>Strict Completion Guard (Verify Green Mark & Replay)</span>
+        <span>Strict Completion Guard (Verify Green Mark &amp; Replay)</span>
       </label>
     </div>
 
     <div class="control-group">
-      <label class="checkbox-label">
-        <input type="checkbox" id="autoSolveCB" checked> 
-        <span>Auto-Solve Practice & Quizzes</span>
+      <label class="checkbox-label" title="Plays video as it does, then after 1 second automatically clicks the End button and lets the rest of AutoPilot complete and advance normally.">
+        <input type="checkbox" id="superBypassVideoCB"> 
+        <span>⚡ Super Bypass Video Mode (Auto-End after 1s)</span>
       </label>
     </div>
 
@@ -821,32 +993,48 @@
         <span>Auto-Navigate Next Item</span>
       </label>
     </div>
-
-    <div class="control-group">
-      <label class="checkbox-label" title="Plays video as it does, then after 1 second automatically clicks the End button and lets the rest of AutoPilot complete and advance normally.">
-        <input type="checkbox" id="superBypassVideoCB"> 
-        <span>⚡ Super Bypass Video Mode (Auto-End after 1s)</span>
-      </label>
-    </div>
   </div>
 
-  <!-- TAB 2: AI Solution Viewer -->
-  <div id="pane-quiz" class="tab-pane">
-    <div id="quizSolutionContainer">
-      <div class="quiz-empty">
-        <div class="quiz-empty-icon">🧠</div>
-        No quiz solved yet.<br>
-        Open a quiz on Coursera to view live AI answers, step-by-step reasoning, and marked choices right here!
+  <!-- ========================================== -->
+  <!-- TAB 4: Dedicated AI Logs Stream            -->
+  <!-- ========================================== -->
+  <div id="pane-ailogs" class="tab-pane">
+    <div class="log-section">
+      <div class="log-header">
+        <span class="log-title">📡 AI Prompts &amp; Solver Logs</span>
+        <button id="clearAiLogsBtn" type="button" class="log-clear-btn" title="Clear AI log stream">Clear</button>
+      </div>
+      <div class="filter-pills-bar">
+        <button type="button" class="filter-pill active" data-provider-filter="all">All</button>
+        <button type="button" class="filter-pill" data-provider-filter="gemini">Gemini</button>
+        <button type="button" class="filter-pill" data-provider-filter="groq">Groq</button>
+        <button type="button" class="filter-pill" data-provider-filter="openrouter">OpenRouter</button>
+        <button type="button" class="filter-pill" data-provider-filter="nvidia">NVIDIA</button>
+      </div>
+      <div id="aiLogList" class="log-list">
+        <div class="log-empty" style="color: #777; text-align: center; padding: 12px 0;">No AI activity recorded yet.</div>
       </div>
     </div>
   </div>
 
-  <!-- TAB 3: Activity & Error Log -->
+  <!-- ========================================== -->
+  <!-- TAB 5: Activity & System Log               -->
+  <!-- ========================================== -->
   <div id="pane-logs" class="tab-pane">
     <div class="log-section">
       <div class="log-header">
-        <span class="log-title">📋 Activity & Error Log</span>
-        <button id="clearLogsBtn" type="button" class="log-clear-btn" title="Clear log history">Clear</button>
+        <span class="log-title">📋 Full Activity Log</span>
+        <div style="display: flex; gap: 5px;">
+          <button id="exportLogsBtn" type="button" class="log-clear-btn" title="Copy logs to clipboard">Copy</button>
+          <button id="clearLogsBtn" type="button" class="log-clear-btn" title="Clear log history">Clear</button>
+        </div>
+      </div>
+      <div class="filter-pills-bar">
+        <button type="button" class="filter-pill active" data-log-filter="all">All</button>
+        <button type="button" class="filter-pill" data-log-filter="success">Success</button>
+        <button type="button" class="filter-pill" data-log-filter="warn">Warn</button>
+        <button type="button" class="filter-pill" data-log-filter="error">Error</button>
+        <button type="button" class="filter-pill" data-log-filter="info">Info</button>
       </div>
       <div id="logList" class="log-list">
         <div class="log-empty" style="color: #777; text-align: center; padding: 12px 0;">No activity recorded yet.</div>
@@ -854,6 +1042,7 @@
     </div>
   </div>
 
+  <!-- Footer -->
   <div class="footer">
     <div style="display: flex; align-items: center; justify-content: space-between;">
       <a href="https://github.com/ankitpandeynine/Coursera-completer" target="_blank" rel="noopener noreferrer">

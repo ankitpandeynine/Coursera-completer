@@ -4,8 +4,9 @@
   "version": "10.2",
   "description": "Auto-plays videos with safe speed spoofing, skips popups, auto-completes readings, auto-navigates, and uses Gemini to solve practice questions and quizzes.",
   "homepage_url": "https://github.com/ankitpandeynine/Coursera-completer",
-  "permissions": ["storage", "alarms"],
+  "permissions": ["storage", "alarms", "tabs"],
   "host_permissions": [
+    "https://*.coursera.org/*",
     "https://generativelanguage.googleapis.com/*",
     "https://api.groq.com/*",
     "https://openrouter.ai/*",
