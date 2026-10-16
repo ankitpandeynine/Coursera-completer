@@ -4353,10 +4353,14 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
                 if (!match) return;
                 const modNum = parseInt(match[1], 10);
 
+                // Ensure link always takes 100% full width so active selection pill/circle extends till end
+                link.style.display = 'flex';
+                link.style.alignItems = 'center';
+                link.style.width = '100%';
+                link.style.boxSizing = 'border-box';
+
                 if (!link.parentElement.querySelector(`.coursera-sidebar-mod-copy-btn[data-mod="${modNum}"]`) && !link.querySelector(`.coursera-sidebar-mod-copy-btn[data-mod="${modNum}"]`)) {
                     const btn = createSmallCopyButton(modNum);
-                    link.style.display = 'inline-flex';
-                    link.style.alignItems = 'center';
                     link.prepend(btn);
                 }
             });
@@ -4365,7 +4369,7 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
         // Also search sidebar text elements for "Module X" if links are in nested items
         const sidebars = document.querySelectorAll('.rc-CourseMaterialSidebar, [data-testid="course-sidebar"], [class*="CourseMaterialSidebar"], nav');
         sidebars.forEach(sb => {
-            const candidateRows = Array.from(sb.querySelectorAll('button, a, div[role="button"], li')).filter(el => {
+            const candidateRows = Array.from(sb.querySelectorAll('button, a, div[role="button"]')).filter(el => {
                 const t = el.textContent ? el.textContent.trim() : '';
                 return /^(?:✔\s*)?Module\s*(\d+)$/i.test(t) || /^Module\s*(\d+):?/i.test(t);
             });
@@ -4373,6 +4377,11 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
                 const m = row.textContent.match(/Module\s*(\d+)/i);
                 if (m) {
                     const modNum = parseInt(m[1], 10);
+                    // Ensure full width so selection highlight extends till end
+                    row.style.display = 'flex';
+                    row.style.alignItems = 'center';
+                    row.style.width = '100%';
+                    row.style.boxSizing = 'border-box';
                     if (!row.querySelector(`.coursera-sidebar-mod-copy-btn[data-mod="${modNum}"]`) && !row.parentElement.querySelector(`.coursera-sidebar-mod-copy-btn[data-mod="${modNum}"]`)) {
                         const btn = createSmallCopyButton(modNum);
                         row.prepend(btn);
