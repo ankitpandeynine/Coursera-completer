@@ -3853,49 +3853,7 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
                         content: contentText
                     });
                 } else if (isVideo) {
-                    let transcriptText = '';
-                    try {
-                        const videoFields = 'onDemandVideos.v1(id%2Cduration%2Cname%2Csubtitles%2CsubtitlesVtt%2CsubtitlesTxt)';
-                        const videoUrl = `${COURSERA_BASE}/api/onDemandLectureVideos.v1/${courseId}~${item.id}/?includes=video&fields=${videoFields}`;
-                        const res = await courseraFetch(videoUrl);
-                        if (res.ok) {
-                            const data = await res.json();
-                            const video = extractVideoFromLecturePayload(data);
-                            if (video) {
-                                const subTxtUrl = video.subtitlesTxt?.['en'] || (video.subtitlesTxt ? Object.values(video.subtitlesTxt)[0] : null);
-                                if (subTxtUrl) {
-                                    const txtRes = await courseraFetch(subTxtUrl);
-                                    if (txtRes.ok) transcriptText = await txtRes.text();
-                                }
-                                if (!transcriptText) {
-                                    const subVttUrl = video.subtitlesVtt?.['en'] || (video.subtitlesVtt ? Object.values(video.subtitlesVtt)[0] : null);
-                                    if (subVttUrl) {
-                                        const vttRes = await courseraFetch(subVttUrl);
-                                        if (vttRes.ok) transcriptText = parseVttTranscript(await vttRes.text());
-                                    }
-                                }
-                                if (!transcriptText) {
-                                    const subSrtUrl = video.subtitles?.['en'] || (video.subtitles ? Object.values(video.subtitles)[0] : null);
-                                    if (subSrtUrl) {
-                                        const srtRes = await courseraFetch(subSrtUrl);
-                                        if (srtRes.ok) transcriptText = parseVttTranscript(await srtRes.text());
-                                    }
-                                }
-                            }
-                        }
-                    } catch (e) {}
-
-                    if (!transcriptText && context.itemId === item.id) {
-                        const cueEls = Array.from(document.querySelectorAll('.rc-TranscriptTrack, [data-testid="transcript-cue"]'));
-                        if (cueEls.length > 0) {
-                            transcriptText = cueEls.map(el => el.innerText.trim()).filter(Boolean).join('\n\n');
-                        }
-                    }
-
-                    if (!transcriptText) {
-                        transcriptText = "*(Video transcript not available for this lecture)*";
-                    }
-
+                    const transcriptText = await fetchVideoTranscript(courseId, item, context);
                     compiledItems.push({
                         type: 'video',
                         title: title,
@@ -3966,6 +3924,267 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
                     copyBtn.innerHTML = `<span>📋</span> <span>Copy Module Content (Readings + Transcripts)</span>`;
                 }, 3000);
             }
+            return { success: false, error: err.message };
+        }
+    }
+
+    async function fetchVideoTranscript(courseId, item, context) {
+        let transcriptText = '';
+        try {
+            const videoFields = 'onDemandVideos.v1(id%2Cduration%2Cname%2Csubtitles%2CsubtitlesVtt%2CsubtitlesTxt)';
+            const videoUrl = `${COURSERA_BASE}/api/onDemandLectureVideos.v1/${courseId}~${item.id}/?includes=video&fields=${videoFields}`;
+            const res = await courseraFetch(videoUrl);
+            if (res.ok) {
+                const data = await res.json();
+                const video = extractVideoFromLecturePayload(data);
+                if (video) {
+                    const subTxtUrl = video.subtitlesTxt?.['en'] || (video.subtitlesTxt ? Object.values(video.subtitlesTxt)[0] : null);
+                    if (subTxtUrl) {
+                        const txtRes = await courseraFetch(subTxtUrl);
+                        if (txtRes.ok) transcriptText = await txtRes.text();
+                    }
+                    if (!transcriptText) {
+                        const subVttUrl = video.subtitlesVtt?.['en'] || (video.subtitlesVtt ? Object.values(video.subtitlesVtt)[0] : null);
+                        if (subVttUrl) {
+                            const vttRes = await courseraFetch(subVttUrl);
+                            if (vttRes.ok) transcriptText = parseVttTranscript(await vttRes.text());
+                        }
+                    }
+                    if (!transcriptText) {
+                        const subSrtUrl = video.subtitles?.['en'] || (video.subtitles ? Object.values(video.subtitles)[0] : null);
+                        if (subSrtUrl) {
+                            const srtRes = await courseraFetch(subSrtUrl);
+                            if (srtRes.ok) transcriptText = parseVttTranscript(await srtRes.text());
+                        }
+                    }
+                }
+            }
+        } catch (e) {}
+
+        if (!transcriptText && context && context.itemId === item.id) {
+            const cueEls = Array.from(document.querySelectorAll('.rc-TranscriptTrack, [data-testid="transcript-cue"]'));
+            if (cueEls.length > 0) {
+                transcriptText = cueEls.map(el => el.innerText.trim()).filter(Boolean).join('\n\n');
+            }
+        }
+
+        if (!transcriptText) {
+            transcriptText = "*(Video transcript not available for this lecture)*";
+        }
+        return transcriptText;
+    }
+
+    async function extractAndCopyCourseContent(shouldDownload = false) {
+        const context = getApiCourseContext();
+        if (!context || !context.courseSlug) {
+            showStatus("⚠️ Not on a Coursera course page.");
+            showModuleToast("Not on a Coursera course page", false);
+            return { success: false, error: "Course context not found." };
+        }
+
+        const { courseSlug } = context;
+        showStatus(`Fetching full course syllabus for '${courseSlug}'...`);
+        addLog(`[Copy Course] Fetching all modules & syllabus for '${courseSlug}'...`, "info");
+
+        const copyBtn = document.getElementById('coursera-copy-course-btn');
+        const downloadBtn = document.getElementById('coursera-download-course-btn');
+        if (copyBtn) copyBtn.dataset.busy = 'true';
+        if (downloadBtn) downloadBtn.dataset.busy = 'true';
+
+        try {
+            const material = await getAllCourseItems(courseSlug);
+            if (!material || !material.linked) {
+                showStatus("❌ Failed to fetch course materials.");
+                showModuleToast("Could not load course materials via API", false);
+                return { success: false, error: "Could not load course materials." };
+            }
+
+            const courseId = material.elements?.[0]?.id || await getCourseId(courseSlug);
+            const courseTitle = material.elements?.[0]?.name || courseSlug;
+            const modules = material.linked['onDemandCourseMaterialModules.v1'] || [];
+            const moduleIds = material.elements?.[0]?.moduleIds || modules.map(m => m.id);
+            const allItems = material.linked['onDemandCourseMaterialItems.v2'] || [];
+            const allLessons = material.linked['onDemandCourseMaterialLessons.v1'] || [];
+
+            if (!modules || modules.length === 0) {
+                showStatus("⚠️ No modules found for this course.");
+                showModuleToast("No modules found in course", false);
+                return { success: false, error: "No modules found." };
+            }
+
+            // Order modules according to course element moduleIds
+            const orderedModules = [];
+            moduleIds.forEach(mId => {
+                const found = modules.find(m => m.id === mId);
+                if (found) orderedModules.push(found);
+            });
+            if (orderedModules.length === 0) {
+                orderedModules.push(...modules);
+            }
+
+            addLog(`[Copy Course] Found ${orderedModules.length} modules. Extracting content from all modules...`, "info");
+
+            const compiledModules = [];
+            let grandTotalItems = 0;
+            let grandTotalReadings = 0;
+            let grandTotalVideos = 0;
+
+            for (let mIdx = 0; mIdx < orderedModules.length; mIdx++) {
+                const mod = orderedModules[mIdx];
+                const modNum = mIdx + 1;
+                const modTitle = mod.name || `Module ${modNum}`;
+                const lessonIds = mod.lessonIds || [];
+
+                // Identify items in this module
+                let modItems = [];
+                if (lessonIds.length > 0) {
+                    lessonIds.forEach(lId => {
+                        const lesson = allLessons.find(l => l.id === lId);
+                        const items = allItems.filter(it => it.lessonId === lId || (lesson && lesson.elementIds && lesson.elementIds.includes(it.id)));
+                        modItems.push(...items);
+                    });
+                }
+
+                // Filter for reading and video lecture items
+                const processItems = modItems.filter(it => {
+                    const type = it.contentSummary?.typeName || '';
+                    return type.includes('lecture') || type.includes('supplement') || type.includes('video') || type.includes('reading');
+                });
+
+                const compiledItems = [];
+
+                for (let i = 0; i < processItems.length; i++) {
+                    const item = processItems[i];
+                    const itemType = item.contentSummary?.typeName || '';
+                    const isVideo = itemType.includes('lecture') || itemType.includes('video');
+                    const isReading = itemType.includes('supplement') || itemType.includes('reading');
+                    const title = item.name || item.slug || `Item ${i + 1}`;
+
+                    const progressLabel = `M${modNum} (${i + 1}/${processItems.length})`;
+                    if (copyBtn) copyBtn.innerHTML = `<span>⏳</span> <span>${progressLabel}</span>`;
+                    if (downloadBtn && shouldDownload) downloadBtn.innerHTML = `<span>⏳</span> <span>${progressLabel}</span>`;
+                    showStatus(`Course Export: Module ${modNum}/${orderedModules.length} - Item ${i + 1}/${processItems.length} ("${title}")...`);
+
+                    if (isReading) {
+                        const contentText = await fetchReadingContent(courseId, courseSlug, item, context);
+                        compiledItems.push({
+                            type: 'reading',
+                            title: title,
+                            content: contentText
+                        });
+                        grandTotalReadings++;
+                        grandTotalItems++;
+                    } else if (isVideo) {
+                        const transcriptText = await fetchVideoTranscript(courseId, item, context);
+                        compiledItems.push({
+                            type: 'video',
+                            title: title,
+                            content: transcriptText
+                        });
+                        grandTotalVideos++;
+                        grandTotalItems++;
+                    }
+                }
+
+                compiledModules.push({
+                    title: modTitle,
+                    items: compiledItems
+                });
+            }
+
+            // Build complete Markdown representation
+            let markdown = `# ${courseTitle} - Complete Course Notes & Transcripts\n`;
+            markdown += `**Course**: ${courseSlug}\n`;
+            markdown += `**Total Modules**: ${compiledModules.length} | **Total Items**: ${grandTotalItems} (${grandTotalReadings} Readings, ${grandTotalVideos} Video Transcripts)\n`;
+            markdown += `\n${'='.repeat(70)}\n\n`;
+
+            compiledModules.forEach((mod, modIdx) => {
+                const mNum = modIdx + 1;
+                const modReadings = mod.items.filter(it => it.type === 'reading').length;
+                const modVideos = mod.items.filter(it => it.type === 'video').length;
+
+                markdown += `# 📚 Module ${mNum}: ${mod.title}\n`;
+                markdown += `*Module Items*: ${mod.items.length} (${modReadings} Readings, ${modVideos} Videos)\n\n`;
+                markdown += `---\n\n`;
+
+                mod.items.forEach((item, itemIdx) => {
+                    const iNum = itemIdx + 1;
+                    if (item.type === 'reading') {
+                        markdown += `## ${mNum}.${iNum} 📖 [Reading] ${item.title}\n\n`;
+                        markdown += `${item.content}\n\n`;
+                    } else if (item.type === 'video') {
+                        markdown += `## ${mNum}.${iNum} 🎬 [Video Transcript] ${item.title}\n\n`;
+                        markdown += `${item.content}\n\n`;
+                    }
+                    markdown += `---\n\n`;
+                });
+
+                markdown += `\n${'='.repeat(70)}\n\n`;
+            });
+
+            const sanitizedCourse = courseSlug.replace(/[^a-zA-Z0-9_-]/g, '_');
+            const filename = `${sanitizedCourse}_Full_Course_Complete_Notes.md`;
+
+            if (shouldDownload) {
+                downloadMarkdownFile(filename, markdown.trim());
+                showModuleToast(`📥 Downloaded ${courseTitle} Complete Notes (.md)!`);
+                showStatus(`📥 Whole course downloaded as ${filename}`);
+            } else {
+                await copyTextToClipboard(markdown.trim());
+                showModuleToast(`✅ Copied All Course Content (${compiledModules.length} Modules, ${grandTotalItems} Items) to Clipboard!`);
+                showStatus(`✅ Copied all ${compiledModules.length} modules to clipboard!`);
+            }
+
+            if (copyBtn) {
+                copyBtn.innerHTML = shouldDownload ? `<span>✅</span> <span>Exported!</span>` : `<span>✅</span> <span>Copied All!</span>`;
+                copyBtn.style.background = '#10b981';
+            }
+            if (downloadBtn && shouldDownload) {
+                downloadBtn.innerHTML = `<span>✅</span> <span>Done!</span>`;
+            }
+
+            setTimeout(() => {
+                if (copyBtn) {
+                    delete copyBtn.dataset.busy;
+                    copyBtn.innerHTML = `<span>📋</span> <span>Copy All Course</span>`;
+                    copyBtn.style.background = '#0056D2';
+                }
+                if (downloadBtn) {
+                    delete downloadBtn.dataset.busy;
+                    downloadBtn.innerHTML = `<span>📥</span> <span>.md</span>`;
+                }
+            }, 3500);
+
+            return {
+                success: true,
+                courseTitle,
+                courseSlug,
+                totalModules: compiledModules.length,
+                totalItems: grandTotalItems,
+                countReadings: grandTotalReadings,
+                countVideos: grandTotalVideos,
+                downloaded: shouldDownload
+            };
+        } catch (err) {
+            console.error('[Copy Course] Error:', err);
+            showStatus(`❌ Copy Course Error: ${err.message}`);
+            showModuleToast(`Error extracting course: ${err.message}`, false);
+            if (copyBtn) {
+                delete copyBtn.dataset.busy;
+                copyBtn.innerHTML = `<span>❌</span> <span>Error</span>`;
+            }
+            if (downloadBtn) {
+                delete downloadBtn.dataset.busy;
+            }
+            setTimeout(() => {
+                if (copyBtn) {
+                    copyBtn.innerHTML = `<span>📋</span> <span>Copy All Course</span>`;
+                    copyBtn.style.background = '#0056D2';
+                }
+                if (downloadBtn) {
+                    downloadBtn.innerHTML = `<span>📥</span> <span>.md</span>`;
+                }
+            }, 3000);
             return { success: false, error: err.message };
         }
     }
@@ -4119,9 +4338,11 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
     function injectModuleCopyButtons() {
         if (!window.location.href.includes('/learn/')) return;
 
-        // Clean up legacy clumsy top sidebar button if present
+        // Clean up legacy clumsy / bulky buttons if present
         const legacyBtn = document.getElementById('coursera-sidebar-copy-btn');
         if (legacyBtn) legacyBtn.remove();
+        const legacyWrapper = document.getElementById('coursera-copy-module-wrapper');
+        if (legacyWrapper) legacyWrapper.remove();
 
         // 1. Inject small [📋] copy buttons in front of each module in the sidebar
         const moduleLinks = Array.from(document.querySelectorAll('a[href*="/home/module/"], a[href*="/home/week/"], a[href*="/module/"], a[href*="/week/"]'));
@@ -4160,85 +4381,100 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
             });
         });
 
-        // 2. Inject on Module Overview Page (/home/module/ or /home/week/)
-        const isModulePage = /\/home\/(?:module|week)\/\d+/i.test(window.location.href);
-        if (isModulePage) {
-            if (!document.getElementById('coursera-copy-module-wrapper')) {
-                // Find actual module heading (ignoring announcements, course material header, congratulations)
-                const headingEl = Array.from(document.querySelectorAll('h1, h2, h3, [data-testid="module-title"], [class*="moduleTitle" i]')).find(h => {
-                    const text = h.textContent.trim();
-                    if (text.length < 2) return false;
-                    if (/congratulations|completed:|certificate|course material|grades|notes|discussion|messages|course info|based on the skills/i.test(text)) {
-                        return false;
-                    }
-                    if (h.closest('.rc-CourseMaterialSidebar, [data-testid="course-sidebar"], nav, aside')) {
-                        return false;
-                    }
-                    return true;
+        // 2. Inject slim full-course toolbar under course heading / module heading
+        if (!document.getElementById('coursera-full-course-toolbar')) {
+            const headingCandidates = Array.from(document.querySelectorAll('h1, h2, h3, [data-testid="course-title"], [data-testid="module-title"], [class*="CourseTitle" i], [class*="courseTitle" i], [class*="moduleTitle" i]'));
+            const headingEl = headingCandidates.find(h => {
+                const text = h.textContent ? h.textContent.trim() : '';
+                if (text.length < 2) return false;
+                if (/congratulations|completed:|certificate|course material|grades|notes|discussion|messages|course info|based on the skills/i.test(text)) {
+                    return false;
+                }
+                return true;
+            });
+
+            if (headingEl && headingEl.parentElement) {
+                const toolbar = document.createElement('div');
+                toolbar.id = 'coursera-full-course-toolbar';
+                toolbar.style.display = 'inline-flex';
+                toolbar.style.alignItems = 'center';
+                toolbar.style.gap = '5px';
+                toolbar.style.margin = '4px 0 8px 0';
+                toolbar.style.padding = '2px 4px';
+                toolbar.style.background = 'rgba(0, 86, 210, 0.05)';
+                toolbar.style.border = '1px solid rgba(0, 86, 210, 0.16)';
+                toolbar.style.borderRadius = '6px';
+                toolbar.style.boxSizing = 'border-box';
+                toolbar.style.width = 'fit-content';
+                toolbar.style.maxWidth = '100%';
+                toolbar.style.zIndex = '100';
+
+                const copyBtn = document.createElement('button');
+                copyBtn.id = 'coursera-copy-course-btn';
+                copyBtn.innerHTML = `<span>📋</span> <span>Copy All Course</span>`;
+                copyBtn.title = "Copy all readings and transcripts from all modules across the entire course to clipboard";
+                copyBtn.style.display = 'inline-flex';
+                copyBtn.style.alignItems = 'center';
+                copyBtn.style.gap = '4px';
+                copyBtn.style.height = '24px';
+                copyBtn.style.padding = '0 8px';
+                copyBtn.style.background = '#0056D2';
+                copyBtn.style.color = '#ffffff';
+                copyBtn.style.border = 'none';
+                copyBtn.style.borderRadius = '4px';
+                copyBtn.style.fontSize = '11px';
+                copyBtn.style.fontWeight = '600';
+                copyBtn.style.cursor = 'pointer';
+                copyBtn.style.boxShadow = '0 1px 2px rgba(0,0,0,0.1)';
+                copyBtn.style.transition = 'all 0.15s ease';
+                copyBtn.style.fontFamily = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+                copyBtn.style.whiteSpace = 'nowrap';
+                copyBtn.style.lineHeight = '24px';
+
+                copyBtn.addEventListener('mouseenter', () => { copyBtn.style.background = '#00419e'; });
+                copyBtn.addEventListener('mouseleave', () => {
+                    if (!copyBtn.dataset.busy) copyBtn.style.background = '#0056D2';
+                });
+                copyBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    extractAndCopyCourseContent(false);
                 });
 
-                if (headingEl && headingEl.parentElement) {
-                    const wrapper = document.createElement('div');
-                    wrapper.id = 'coursera-copy-module-wrapper';
-                    wrapper.style.display = 'inline-flex';
-                    wrapper.style.alignItems = 'center';
-                    wrapper.style.gap = '8px';
-                    wrapper.style.margin = '10px 0 16px 0';
-                    wrapper.style.flexWrap = 'wrap';
-                    wrapper.style.zIndex = '100';
+                const downloadBtn = document.createElement('button');
+                downloadBtn.id = 'coursera-download-course-btn';
+                downloadBtn.innerHTML = `<span>📥</span> <span>.md</span>`;
+                downloadBtn.title = "Download complete Markdown notes (.md) for the entire course";
+                downloadBtn.style.display = 'inline-flex';
+                downloadBtn.style.alignItems = 'center';
+                downloadBtn.style.gap = '3px';
+                downloadBtn.style.height = '24px';
+                downloadBtn.style.padding = '0 7px';
+                downloadBtn.style.background = '#ffffff';
+                downloadBtn.style.color = '#0056D2';
+                downloadBtn.style.border = '1px solid rgba(0, 86, 210, 0.3)';
+                downloadBtn.style.borderRadius = '4px';
+                downloadBtn.style.fontSize = '11px';
+                downloadBtn.style.fontWeight = '600';
+                downloadBtn.style.cursor = 'pointer';
+                downloadBtn.style.boxShadow = '0 1px 2px rgba(0,0,0,0.05)';
+                downloadBtn.style.transition = 'all 0.15s ease';
+                downloadBtn.style.fontFamily = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+                downloadBtn.style.whiteSpace = 'nowrap';
+                downloadBtn.style.lineHeight = '22px';
 
-                    const copyBtn = document.createElement('button');
-                    copyBtn.id = 'coursera-copy-module-btn';
-                    copyBtn.innerHTML = `<span>📋</span> <span>Copy Module Content (Readings + Transcripts)</span>`;
-                    copyBtn.style.display = 'inline-flex';
-                    copyBtn.style.alignItems = 'center';
-                    copyBtn.style.gap = '6px';
-                    copyBtn.style.padding = '8px 16px';
-                    copyBtn.style.background = 'linear-gradient(135deg, #0056D2, #1d4ed8)';
-                    copyBtn.style.color = '#ffffff';
-                    copyBtn.style.border = 'none';
-                    copyBtn.style.borderRadius = '6px';
-                    copyBtn.style.fontSize = '13px';
-                    copyBtn.style.fontWeight = '600';
-                    copyBtn.style.cursor = 'pointer';
-                    copyBtn.style.boxShadow = '0 2px 4px rgba(0,0,0,0.12)';
-                    copyBtn.style.transition = 'all 0.2s ease';
-                    copyBtn.style.fontFamily = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+                downloadBtn.addEventListener('mouseenter', () => { downloadBtn.style.background = 'rgba(0, 86, 210, 0.08)'; });
+                downloadBtn.addEventListener('mouseleave', () => {
+                    if (!downloadBtn.dataset.busy) downloadBtn.style.background = '#ffffff';
+                });
+                downloadBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    extractAndCopyCourseContent(true);
+                });
 
-                    copyBtn.addEventListener('mouseenter', () => copyBtn.style.transform = 'translateY(-1px)');
-                    copyBtn.addEventListener('mouseleave', () => copyBtn.style.transform = 'translateY(0)');
-                    copyBtn.addEventListener('click', (e) => {
-                        e.preventDefault();
-                        extractAndCopyModuleContent(null, false);
-                    });
+                toolbar.appendChild(copyBtn);
+                toolbar.appendChild(downloadBtn);
 
-                    const downloadBtn = document.createElement('button');
-                    downloadBtn.id = 'coursera-download-module-btn';
-                    downloadBtn.innerHTML = `<span>📥</span> <span>Download .md</span>`;
-                    downloadBtn.style.display = 'inline-flex';
-                    downloadBtn.style.alignItems = 'center';
-                    downloadBtn.style.gap = '6px';
-                    downloadBtn.style.padding = '8px 14px';
-                    downloadBtn.style.background = 'rgba(0, 86, 210, 0.08)';
-                    downloadBtn.style.color = '#0056D2';
-                    downloadBtn.style.border = '1px solid rgba(0, 86, 210, 0.3)';
-                    downloadBtn.style.borderRadius = '6px';
-                    downloadBtn.style.fontSize = '13px';
-                    downloadBtn.style.fontWeight = '600';
-                    downloadBtn.style.cursor = 'pointer';
-                    downloadBtn.style.transition = 'all 0.2s ease';
-                    downloadBtn.style.fontFamily = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-
-                    downloadBtn.addEventListener('click', (e) => {
-                        e.preventDefault();
-                        extractAndCopyModuleContent(null, true);
-                    });
-
-                    wrapper.appendChild(copyBtn);
-                    wrapper.appendChild(downloadBtn);
-
-                    headingEl.insertAdjacentElement('afterend', wrapper);
-                }
+                headingEl.insertAdjacentElement('afterend', toolbar);
             }
         }
     }
@@ -4260,6 +4496,10 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
         }
         if (message.action === 'copyModuleContent') {
             extractAndCopyModuleContent(message.moduleNumber || null, !!message.download).then(sendResponse);
+            return true;
+        }
+        if (message.action === 'copyAllCourseContent') {
+            extractAndCopyCourseContent(!!message.download).then(sendResponse);
             return true;
         }
         if (message.action === 'getCourseContext') {

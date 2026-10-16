@@ -203,10 +203,55 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Copy Module Content Handlers
+    // Copy Course & Module Content Handlers
+    const copyFullCourseBtn = document.getElementById('copyFullCourseBtn');
+    const downloadFullCourseBtn = document.getElementById('downloadFullCourseBtn');
     const copyActiveModuleBtn = document.getElementById('copyActiveModuleBtn');
     const downloadActiveModuleBtn = document.getElementById('downloadActiveModuleBtn');
     const moduleCopyStatusText = document.getElementById('moduleCopyStatusText');
+
+    function handleCopyCourseAction(download = false) {
+        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+            const tab = tabs[0];
+            if (!tab || !tab.url || !tab.url.includes('coursera.org/learn/')) {
+                if (moduleCopyStatusText) {
+                    moduleCopyStatusText.style.display = 'block';
+                    moduleCopyStatusText.style.color = '#ef4444';
+                    moduleCopyStatusText.textContent = "Please open a Coursera course first.";
+                }
+                return;
+            }
+
+            if (moduleCopyStatusText) {
+                moduleCopyStatusText.style.display = 'block';
+                moduleCopyStatusText.style.color = '#0056D2';
+                moduleCopyStatusText.textContent = download ? "⏳ Extracting all modules & generating full course .md..." : "⏳ Extracting all modules, readings & transcripts...";
+            }
+
+            chrome.tabs.sendMessage(tab.id, { action: 'copyAllCourseContent', download: download }, (response) => {
+                if (chrome.runtime.lastError) {
+                    if (moduleCopyStatusText) {
+                        moduleCopyStatusText.style.color = '#ef4444';
+                        moduleCopyStatusText.textContent = "Please refresh the Coursera tab once and try again.";
+                    }
+                    return;
+                }
+                if (response && response.success) {
+                    if (moduleCopyStatusText) {
+                        moduleCopyStatusText.style.color = '#10b981';
+                        moduleCopyStatusText.textContent = download
+                            ? `✅ Downloaded Full Course (${response.totalModules} Modules, ${response.totalItems} Items)!`
+                            : `✅ Copied Full Course (${response.totalModules} Modules, ${response.totalItems} Items) to Clipboard!`;
+                    }
+                } else {
+                    if (moduleCopyStatusText) {
+                        moduleCopyStatusText.style.color = '#ef4444';
+                        moduleCopyStatusText.textContent = response?.error || "Failed to extract course content.";
+                    }
+                }
+            });
+        });
+    }
 
     function handleCopyModuleAction(download = false) {
         chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
@@ -251,6 +296,12 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    if (copyFullCourseBtn) {
+        copyFullCourseBtn.addEventListener('click', () => handleCopyCourseAction(false));
+    }
+    if (downloadFullCourseBtn) {
+        downloadFullCourseBtn.addEventListener('click', () => handleCopyCourseAction(true));
+    }
     if (copyActiveModuleBtn) {
         copyActiveModuleBtn.addEventListener('click', () => handleCopyModuleAction(false));
     }
