@@ -734,6 +734,28 @@
       </div>
     </div>
 
+    <!-- Copy Module Content (Readings & Transcripts) Card -->
+    <div class="course-status-card" id="copyModuleCard" style="margin-bottom: 10px; background: #ffffff; border: 1px solid #cbd5e1;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 7px;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 16px;">📚</span>
+          <div>
+            <div style="font-size: 12px; font-weight: 700; color: #0f172a;">Copy Module Content</div>
+            <div style="font-size: 10px; color: #64748b;">Readings + Video Transcripts in 1 click</div>
+          </div>
+        </div>
+      </div>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
+        <button type="button" id="copyActiveModuleBtn" class="secondary-oneclick-btn" style="margin-bottom: 0; padding: 8px 6px; font-size: 11px;" title="Copy all readings and video transcripts in the active module to clipboard">
+          <span>📋 Copy to Clipboard</span>
+        </button>
+        <button type="button" id="downloadActiveModuleBtn" class="secondary-oneclick-btn" style="margin-bottom: 0; padding: 8px 6px; font-size: 11px; background: #f8fafc; border-color: #cbd5e1; color: #334155;" title="Download all readings and video transcripts as a formatted Markdown file">
+          <span>📥 Download .md</span>
+        </button>
+      </div>
+      <div id="moduleCopyStatusText" style="font-size: 10.5px; color: #0056D2; font-weight: 600; margin-top: 6px; display: none;"></div>
+    </div>
+
     <!-- Redirect Card to MCQ / Practice Question Setup -->
     <div class="quiz-redirect-card" id="gotoQuizTabCard" title="Click to open Practice Questions & AI configuration">
       <div style="display: flex; align-items: center; justify-content: space-between;">

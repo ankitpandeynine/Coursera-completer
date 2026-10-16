@@ -203,6 +203,61 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // Copy Module Content Handlers
+    const copyActiveModuleBtn = document.getElementById('copyActiveModuleBtn');
+    const downloadActiveModuleBtn = document.getElementById('downloadActiveModuleBtn');
+    const moduleCopyStatusText = document.getElementById('moduleCopyStatusText');
+
+    function handleCopyModuleAction(download = false) {
+        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+            const tab = tabs[0];
+            if (!tab || !tab.url || !tab.url.includes('coursera.org/learn/')) {
+                if (moduleCopyStatusText) {
+                    moduleCopyStatusText.style.display = 'block';
+                    moduleCopyStatusText.style.color = '#ef4444';
+                    moduleCopyStatusText.textContent = "Please open a Coursera course module first.";
+                }
+                return;
+            }
+
+            if (moduleCopyStatusText) {
+                moduleCopyStatusText.style.display = 'block';
+                moduleCopyStatusText.style.color = '#0056D2';
+                moduleCopyStatusText.textContent = download ? "⏳ Extracting & generating .md download..." : "⏳ Extracting readings & video transcripts...";
+            }
+
+            chrome.tabs.sendMessage(tab.id, { action: 'copyModuleContent', download: download }, (response) => {
+                if (chrome.runtime.lastError) {
+                    if (moduleCopyStatusText) {
+                        moduleCopyStatusText.style.color = '#ef4444';
+                        moduleCopyStatusText.textContent = "Please refresh the Coursera tab once and try again.";
+                    }
+                    return;
+                }
+                if (response && response.success) {
+                    if (moduleCopyStatusText) {
+                        moduleCopyStatusText.style.color = '#10b981';
+                        moduleCopyStatusText.textContent = download
+                            ? `✅ Downloaded Module ${response.moduleNumber}: ${response.countReadings} Readings, ${response.countVideos} Transcripts!`
+                            : `✅ Copied Module ${response.moduleNumber} (${response.countReadings} Readings, ${response.countVideos} Transcripts) to Clipboard!`;
+                    }
+                } else {
+                    if (moduleCopyStatusText) {
+                        moduleCopyStatusText.style.color = '#ef4444';
+                        moduleCopyStatusText.textContent = response?.error || "Failed to extract module content.";
+                    }
+                }
+            });
+        });
+    }
+
+    if (copyActiveModuleBtn) {
+        copyActiveModuleBtn.addEventListener('click', () => handleCopyModuleAction(false));
+    }
+    if (downloadActiveModuleBtn) {
+        downloadActiveModuleBtn.addEventListener('click', () => handleCopyModuleAction(true));
+    }
+
     // ==========================================
     // TAB 2: PRACTICE QUESTIONS & AI SOLVER
     // ==========================================
