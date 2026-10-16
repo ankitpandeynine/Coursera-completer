@@ -3846,28 +3846,7 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
                 showStatus(`Copying Module ${modIdx}: Fetching item ${i + 1}/${processItems.length}...`);
 
                 if (isReading) {
-                    let contentText = '';
-                    try {
-                        const suppUrl = `${COURSERA_BASE}/api/onDemandSupplements.v1/${courseId}~${item.id}?includes=asset`;
-                        const res = await courseraFetch(suppUrl);
-                        if (res.ok) {
-                            const data = await res.json();
-                            const cml = data?.elements?.[0]?.content?.definition?.value;
-                            if (cml) {
-                                contentText = parseCmlContent(cml);
-                            }
-                        }
-                    } catch (e) {}
-
-                    if (!contentText && context.itemId === item.id) {
-                        const domContent = document.querySelector('.rc-CmlContent, [data-testid="item-page-content"], main');
-                        if (domContent) contentText = domContent.innerText.trim();
-                    }
-
-                    if (!contentText) {
-                        contentText = "*(Reading material text could not be loaded via API)*";
-                    }
-
+                    const contentText = await fetchReadingContent(courseId, courseSlug, item, context);
                     compiledItems.push({
                         type: 'reading',
                         title: title,
@@ -3991,16 +3970,211 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
         }
     }
 
+    async function fetchReadingContent(courseId, courseSlug, item, context) {
+        // 1. Try Coursera onDemandSupplements.v1 with openCourseAssets fields
+        const suppEndpoints = [
+            `${COURSERA_BASE}/api/onDemandSupplements.v1/${courseId}~${item.id}?includes=asset&fields=openCourseAssets.v1(typeName%2Cdefinition)`,
+            `${COURSERA_BASE}/api/onDemandSupplements.v1/${courseSlug}~${item.id}?includes=asset&fields=openCourseAssets.v1(typeName%2Cdefinition)`,
+            `${COURSERA_BASE}/api/onDemandSupplements.v1/${courseId}~${item.id}?includes=asset`,
+            `${COURSERA_BASE}/api/onDemandSupplements.v1/${item.id}?includes=asset&fields=openCourseAssets.v1(typeName%2Cdefinition)`
+        ];
+
+        for (const url of suppEndpoints) {
+            try {
+                const res = await courseraFetch(url);
+                if (res.ok) {
+                    const data = await res.json();
+                    
+                    // Priority 1: Linked openCourseAssets.v1 definitions
+                    const assets = data?.linked?.['openCourseAssets.v1'];
+                    if (Array.isArray(assets) && assets.length > 0) {
+                        const parts = [];
+                        for (const asset of assets) {
+                            const val = asset?.definition?.value;
+                            if (typeof val === 'string' && val.trim().length > 0) {
+                                const parsed = parseCmlContent(val);
+                                if (parsed) parts.push(parsed);
+                            }
+                        }
+                        if (parts.length > 0) {
+                            return parts.join('\n\n');
+                        }
+                    }
+
+                    // Priority 2: elements[0].content.definition.value or elements[0].definition.value
+                    const elVal = data?.elements?.[0]?.content?.definition?.value || data?.elements?.[0]?.definition?.value;
+                    if (elVal && typeof elVal === 'string' && elVal.trim().length > 0) {
+                        const parsed = parseCmlContent(elVal);
+                        if (parsed) return parsed;
+                    }
+                }
+            } catch (e) {}
+        }
+
+        // 2. Direct Supplement Page HTML Fetch (Server-Side Rendered / Next.js / initial JSON state)
+        try {
+            const pageUrl = `${COURSERA_BASE}/learn/${courseSlug}/supplement/${item.id}/${item.slug || ''}`;
+            const pageRes = await courseraFetch(pageUrl);
+            if (pageRes.ok) {
+                const html = await pageRes.text();
+
+                // Look for <co-content> tag in HTML
+                const cmlMatch = html.match(/<co-content>([\s\S]*?)<\/co-content>/i);
+                if (cmlMatch) {
+                    const parsed = parseCmlContent(`<co-content>${cmlMatch[1]}</co-content>`);
+                    if (parsed && parsed.length > 20) return parsed;
+                }
+
+                // Look for JSON definition value
+                const jsonMatches = html.matchAll(/"definition":\s*\{\s*"value":\s*"([^"]+)"/g);
+                for (const match of jsonMatches) {
+                    try {
+                        const rawVal = JSON.parse(`"${match[1]}"`);
+                        if (rawVal && (rawVal.includes('<co-content>') || rawVal.includes('<text>') || rawVal.length > 30)) {
+                            const parsed = parseCmlContent(rawVal);
+                            if (parsed && parsed.length > 20) return parsed;
+                        }
+                    } catch (e) {}
+                }
+            }
+        } catch (e) {}
+
+        // 3. Fallback to active DOM if reading is open on screen
+        if (context && context.itemId === item.id) {
+            const domContent = document.querySelector('.rc-CmlContent, [data-testid="item-page-content"], main');
+            if (domContent && domContent.innerText.trim().length > 0) {
+                return domContent.innerText.trim();
+            }
+        }
+
+        return "*(Reading material text could not be loaded via API)*";
+    }
+
+    function createSmallCopyButton(modNum) {
+        const copyBtn = document.createElement('button');
+        copyBtn.className = 'coursera-sidebar-mod-copy-btn';
+        copyBtn.setAttribute('data-mod', String(modNum));
+        copyBtn.setAttribute('type', 'button');
+        copyBtn.title = `Copy Module ${modNum} Content (Readings + Transcripts)`;
+        copyBtn.innerHTML = '📋';
+        copyBtn.style.display = 'inline-flex';
+        copyBtn.style.alignItems = 'center';
+        copyBtn.style.justifyContent = 'center';
+        copyBtn.style.width = '22px';
+        copyBtn.style.height = '22px';
+        copyBtn.style.minWidth = '22px';
+        copyBtn.style.marginRight = '8px';
+        copyBtn.style.background = 'rgba(0, 86, 210, 0.12)';
+        copyBtn.style.color = '#0056D2';
+        copyBtn.style.border = '1px solid rgba(0, 86, 210, 0.3)';
+        copyBtn.style.borderRadius = '50%';
+        copyBtn.style.cursor = 'pointer';
+        copyBtn.style.fontSize = '11px';
+        copyBtn.style.padding = '0';
+        copyBtn.style.transition = 'all 0.15s ease';
+        copyBtn.style.verticalAlign = 'middle';
+        copyBtn.style.flexShrink = '0';
+        copyBtn.style.zIndex = '100';
+
+        copyBtn.addEventListener('mouseenter', () => {
+            copyBtn.style.background = '#0056D2';
+            copyBtn.style.color = '#ffffff';
+            copyBtn.style.transform = 'scale(1.12)';
+        });
+        copyBtn.addEventListener('mouseleave', () => {
+            copyBtn.style.background = 'rgba(0, 86, 210, 0.12)';
+            copyBtn.style.color = '#0056D2';
+            copyBtn.style.transform = 'scale(1)';
+        });
+
+        copyBtn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            copyBtn.innerHTML = '⏳';
+            copyBtn.style.transform = 'scale(1)';
+            try {
+                const res = await extractAndCopyModuleContent(modNum, false);
+                if (res && res.success) {
+                    copyBtn.innerHTML = '✅';
+                    setTimeout(() => {
+                        copyBtn.innerHTML = '📋';
+                    }, 2500);
+                } else {
+                    copyBtn.innerHTML = '❌';
+                    setTimeout(() => {
+                        copyBtn.innerHTML = '📋';
+                    }, 2500);
+                }
+            } catch (err) {
+                copyBtn.innerHTML = '❌';
+                setTimeout(() => {
+                    copyBtn.innerHTML = '📋';
+                }, 2500);
+            }
+        });
+
+        return copyBtn;
+    }
+
     function injectModuleCopyButtons() {
         if (!window.location.href.includes('/learn/')) return;
 
-        // 1. Inject on Module Overview Page (/home/module/ or /home/week/)
+        // Clean up legacy clumsy top sidebar button if present
+        const legacyBtn = document.getElementById('coursera-sidebar-copy-btn');
+        if (legacyBtn) legacyBtn.remove();
+
+        // 1. Inject small [📋] copy buttons in front of each module in the sidebar
+        const moduleLinks = Array.from(document.querySelectorAll('a[href*="/home/module/"], a[href*="/home/week/"], a[href*="/module/"], a[href*="/week/"]'));
+        if (moduleLinks.length > 0) {
+            moduleLinks.forEach(link => {
+                const href = link.getAttribute('href') || '';
+                const match = href.match(/\/(?:module|week)\/(\d+)/i);
+                if (!match) return;
+                const modNum = parseInt(match[1], 10);
+
+                if (!link.parentElement.querySelector(`.coursera-sidebar-mod-copy-btn[data-mod="${modNum}"]`) && !link.querySelector(`.coursera-sidebar-mod-copy-btn[data-mod="${modNum}"]`)) {
+                    const btn = createSmallCopyButton(modNum);
+                    link.style.display = 'inline-flex';
+                    link.style.alignItems = 'center';
+                    link.prepend(btn);
+                }
+            });
+        }
+
+        // Also search sidebar text elements for "Module X" if links are in nested items
+        const sidebars = document.querySelectorAll('.rc-CourseMaterialSidebar, [data-testid="course-sidebar"], [class*="CourseMaterialSidebar"], nav');
+        sidebars.forEach(sb => {
+            const candidateRows = Array.from(sb.querySelectorAll('button, a, div[role="button"], li')).filter(el => {
+                const t = el.textContent ? el.textContent.trim() : '';
+                return /^(?:✔\s*)?Module\s*(\d+)$/i.test(t) || /^Module\s*(\d+):?/i.test(t);
+            });
+            candidateRows.forEach(row => {
+                const m = row.textContent.match(/Module\s*(\d+)/i);
+                if (m) {
+                    const modNum = parseInt(m[1], 10);
+                    if (!row.querySelector(`.coursera-sidebar-mod-copy-btn[data-mod="${modNum}"]`) && !row.parentElement.querySelector(`.coursera-sidebar-mod-copy-btn[data-mod="${modNum}"]`)) {
+                        const btn = createSmallCopyButton(modNum);
+                        row.prepend(btn);
+                    }
+                }
+            });
+        });
+
+        // 2. Inject on Module Overview Page (/home/module/ or /home/week/)
         const isModulePage = /\/home\/(?:module|week)\/\d+/i.test(window.location.href);
         if (isModulePage) {
             if (!document.getElementById('coursera-copy-module-wrapper')) {
-                const headingEl = Array.from(document.querySelectorAll('h1, h2, [class*="moduleTitle" i], [data-testid="module-title"]')).find(h => {
+                // Find actual module heading (ignoring announcements, course material header, congratulations)
+                const headingEl = Array.from(document.querySelectorAll('h1, h2, h3, [data-testid="module-title"], [class*="moduleTitle" i]')).find(h => {
                     const text = h.textContent.trim();
-                    return text.length > 2 && !text.includes('Today') && !text.includes('Coursera') && !text.includes('Course Material');
+                    if (text.length < 2) return false;
+                    if (/congratulations|completed:|certificate|course material|grades|notes|discussion|messages|course info|based on the skills/i.test(text)) {
+                        return false;
+                    }
+                    if (h.closest('.rc-CourseMaterialSidebar, [data-testid="course-sidebar"], nav, aside')) {
+                        return false;
+                    }
+                    return true;
                 });
 
                 if (headingEl && headingEl.parentElement) {
@@ -4065,38 +4239,6 @@ Output ONLY a valid JSON array of objects without Markdown formatting:
 
                     headingEl.insertAdjacentElement('afterend', wrapper);
                 }
-            }
-        }
-
-        // 2. Inject in Course Material Sidebar (on lecture/supplement pages)
-        const sidebar = document.querySelector('.rc-CourseMaterialSidebar, [data-testid="course-sidebar"], [class*="CourseMaterialSidebar"]');
-        if (sidebar && !document.getElementById('coursera-sidebar-copy-btn')) {
-            const sidebarHeader = sidebar.querySelector('h3, [class*="module" i], [class*="header" i]') || sidebar.firstChild;
-            if (sidebarHeader) {
-                const sBtn = document.createElement('button');
-                sBtn.id = 'coursera-sidebar-copy-btn';
-                sBtn.innerHTML = `<span>📋 Copy Module Content</span>`;
-                sBtn.title = 'Copy all reading materials and video transcripts in this module to clipboard';
-                sBtn.style.display = 'block';
-                sBtn.style.width = 'calc(100% - 24px)';
-                sBtn.style.margin = '8px 12px';
-                sBtn.style.padding = '6px 12px';
-                sBtn.style.background = 'linear-gradient(135deg, #0056D2, #1e40af)';
-                sBtn.style.color = '#ffffff';
-                sBtn.style.border = 'none';
-                sBtn.style.borderRadius = '4px';
-                sBtn.style.fontSize = '12px';
-                sBtn.style.fontWeight = '600';
-                sBtn.style.cursor = 'pointer';
-                sBtn.style.boxShadow = '0 1px 3px rgba(0,0,0,0.1)';
-                sBtn.style.textAlign = 'center';
-
-                sBtn.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    extractAndCopyModuleContent(null, false);
-                });
-
-                sidebarHeader.insertAdjacentElement('afterend', sBtn);
             }
         }
     }

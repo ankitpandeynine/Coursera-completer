@@ -180,10 +180,13 @@ console.log("✓ popup.html contains copyModuleCard, copyActiveModuleBtn, and do
 const contentJs = fs.readFileSync(path.join(__dirname, '../content.js'), 'utf8');
 assert(contentJs.includes('function parseCmlContent('), "content.js must contain parseCmlContent");
 assert(contentJs.includes('function parseVttTranscript('), "content.js must contain parseVttTranscript");
+assert(contentJs.includes('async function fetchReadingContent('), "content.js must contain fetchReadingContent");
+assert(contentJs.includes('function createSmallCopyButton('), "content.js must contain createSmallCopyButton");
 assert(contentJs.includes('async function extractAndCopyModuleContent('), "content.js must contain extractAndCopyModuleContent");
 assert(contentJs.includes('function injectModuleCopyButtons('), "content.js must contain injectModuleCopyButtons");
+assert(contentJs.includes('coursera-sidebar-mod-copy-btn'), "content.js must use coursera-sidebar-mod-copy-btn");
 assert(contentJs.includes("message.action === 'copyModuleContent'"), "content.js must listen for copyModuleContent");
-console.log("✓ content.js contains all module extraction, button injection, and message listeners.");
+console.log("✓ content.js contains all module extraction, reading fetcher, small sidebar button generator, and message listeners.");
 
 // 6. Test Module Context Regex Matching
 function testParseContext(url) {
