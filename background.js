@@ -44,7 +44,7 @@ async function discoverGeminiModels(apiKey) {
     const versions = ['v1beta', 'v1'];
     for (const ver of versions) {
         try {
-            const res = await fetch(`https://generativelanguage.googleapis.com/${ver}/models?key=${encodeURIComponent(cleanApiKey)}`, {
+            const res = await fetch(`https://generativelanguage.googleapis.com/${ver}/models`, {
                 headers: { 'x-goog-api-key': cleanApiKey },
                 signal: AbortSignal.timeout(10000)
             });
